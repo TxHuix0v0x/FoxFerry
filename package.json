@@ -1,0 +1,74 @@
+{
+  "name": "foxferry",
+  "version": "0.2.7",
+  "private": true,
+  "description": "FoxFerry · 订阅聚合与分流助手",
+  "author": "FoxFerry contributors",
+  "license": "MIT",
+  "main": "src/main.cjs",
+  "scripts": {
+    "start": "electron .",
+    "demo": "electron . --demo",
+    "test": "node --test test/*.test.cjs",
+    "test:ui": "node scripts/ui-smoke.cjs",
+    "test:launcher": "node scripts/launcher-smoke.cjs",
+    "test:core": "node scripts/core-smoke.cjs",
+    "check": "node scripts/check.cjs",
+    "build": "electron-builder --win nsis --x64 --publish never",
+    "build:dir": "electron-builder --win --x64 --dir --publish never",
+    "source": "node scripts/package-source.cjs",
+    "test:package": "node scripts/package-smoke.cjs"
+  },
+  "dependencies": {
+    "yaml": "2.9.1"
+  },
+  "devDependencies": {
+    "electron": "45.3.2",
+    "electron-builder": "26.18.0",
+    "playwright": "1.65.0"
+  },
+  "overrides": {
+    "minimatch@>=7 <11.0.1": "11.0.1"
+  },
+  "build": {
+    "appId": "local.foxferry",
+    "productName": "FoxFerry",
+    "asar": true,
+    "files": [
+      "src/**/*",
+      "assets/fox-logo.png",
+      "assets/fox-logo.ico",
+      "licenses/**/*",
+      "docs/安装与升级.md",
+      "docs/使用指南.md",
+      "examples/**/*",
+      "LICENSE",
+      "NOTICE.md",
+      "package.json"
+    ],
+    "directories": {
+      "output": "release"
+    },
+    "win": {
+      "target": "nsis",
+      "icon": "assets/fox-logo.ico",
+      "signExecutable": false,
+      "executableName": "FoxFerry"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "deleteAppDataOnUninstall": false,
+      "include": "scripts/installer.nsh",
+      "shortcutName": "FoxFerry",
+      "uninstallDisplayName": "FoxFerry ${version}",
+      "guid": "bc2f3ea5-a4a6-56c5-b4c3-36b6134afad1"
+    },
+    "artifactName": "FoxFerry-${version}-${arch}-setup.${ext}"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/TxHuix0v0x/FoxFerry"
+  }
+}

@@ -1,0 +1,12 @@
+# 仅供格式演示，.invalid 地址不提供实际代理服务。
+proxies:
+  - name: 日本 01
+    type: socks5
+    server: main.example.invalid
+    port: 1080
+    udp: true
+  - name: 香港 01
+    type: socks5
+    server: main.example.invalid
+    port: 1081
+    udp: true

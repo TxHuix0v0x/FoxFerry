@@ -1,0 +1,11 @@
+proxies:
+  - name: 日本 01
+    type: socks5
+    server: download.example.invalid
+    port: 1080
+    udp: true
+  - name: 未知节点
+    type: socks5
+    server: download.example.invalid
+    port: 1081
+    udp: false

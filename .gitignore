@@ -1,0 +1,20 @@
+node_modules/
+.research/
+.local/
+release/
+coverage/
+*.log
+*.tmp
+Thumbs.db
+.DS_Store
+
+# Local verification and private runtime files
+docs/验证记录.md
+state.json
+transaction.json
+assistant-owned.yaml
+backgrounds/
+*.exe
+*.asar
+*.blockmap
+*.7z

@@ -1,0 +1,36 @@
+body{position:relative;isolation:isolate;background:var(--background-color,#f4f6fa);--accent:#4d5968;--accent-hover:#35404e;--accent-soft:#edf0f3}
+body[data-background=red]{--background-color:#fbf0f0;--accent:#a13748;--accent-hover:#852c3b;--accent-soft:#f9e9ec}
+body[data-background=orange]{--background-color:#fcf3ed;--accent:#a44b20;--accent-hover:#853a19;--accent-soft:#faece3}
+body[data-background=yellow]{--background-color:#faf7e9;--accent:#7c5d06;--accent-hover:#654a04;--accent-soft:#f7f0d7}
+body[data-background=green]{--background-color:#eff7ef;--accent:#256c55;--accent-hover:#1d5e49;--accent-soft:#e3f0e7}
+body[data-background=cyan]{--background-color:#edf7f7;--accent:#17686f;--accent-hover:#10565b;--accent-soft:#e1f1f1}
+body[data-background=blue]{--background-color:#eef4fb;--accent:#315f91;--accent-hover:#284d78;--accent-soft:#e8eff8}
+body[data-background=purple]{--background-color:#f4f0fa;--accent:#674996;--accent-hover:#543a7c;--accent-soft:#eee8f8}
+body[data-background=sage]{--background-color:#e8efea;--accent:#256c55;--accent-hover:#1d5e49;--accent-soft:#e3f0e7}
+body[data-background=cool]{--background-color:#e9eff6;--accent:#315f91;--accent-hover:#284d78;--accent-soft:#e8eff8}
+body[data-background=warm]{--background-color:#f4eee8;--accent:#a54828;--accent-hover:#8e3c21;--accent-soft:#f8eae1}
+nav button.active{background:var(--accent-soft)}
+button:not(.primary):not(.danger):not([data-page]){color:var(--accent);border-color:color-mix(in srgb,var(--accent) 22%,white)}
+button:hover{background:var(--accent-soft)}
+.primary:hover{background:var(--accent-hover)}
+input[type=checkbox],input[type=radio],input[type=range]{accent-color:var(--accent)}
+input:focus-visible,select:focus-visible,textarea:focus-visible,button:focus-visible,summary:focus-visible{outline-color:var(--accent)}
+.steps .step:before,.pill:not(.manual){background:var(--accent-soft);color:var(--accent)}
+summary{color:var(--accent)}
+#background-image{position:fixed;inset:0;z-index:-1;pointer-events:none;background-repeat:no-repeat;background-position:center}
+.panel,.card{background:rgb(255 255 255 / var(--panel-opacity,1));backdrop-filter:blur(var(--panel-blur,0px))}
+body[data-background-mode=image] main>header,body[data-background-mode=image] #content>.section-head,body[data-background-mode=image] footer{background:rgba(255,255,255,.94);border-radius:10px;padding:10px 14px}
+.brand-mark{width:48px;height:48px;object-fit:cover;padding:0;background:none;border-radius:13px}
+.background-settings{margin-bottom:15px}.background-settings h2{margin-bottom:8px}.background-settings p{margin:8px 0 12px}.background-modes{display:flex;gap:20px;flex-wrap:wrap}.background-modes label{font-size:14px;color:inherit}.background-modes input{width:auto}
+.background-presets{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}.background-presets button{display:flex;align-items:center;gap:6px;font-size:12px;padding:7px 9px}.background-presets button[aria-pressed=true]{outline:2px solid var(--accent);outline-offset:1px}.swatch{width:17px;height:17px;border:1px solid #bdc4cb;border-radius:50%;display:inline-block;background:var(--swatch)}
+.swatch-white{--swatch:#f4f6fa}.swatch-red{--swatch:#f6dede}.swatch-orange{--swatch:#f7e3d3}.swatch-yellow{--swatch:#f5ebc6}.swatch-green{--swatch:#dceede}.swatch-cyan{--swatch:#d8eded}.swatch-blue{--swatch:#dce9fa}.swatch-purple{--swatch:#e8ddf4}.swatch-sage{--swatch:#d6e1d9}.swatch-cool{--swatch:#d6e0eb}.swatch-warm{--swatch:#ebded3}
+.background-file{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.background-file span{overflow-wrap:anywhere}.background-controls{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin:10px 0}.background-controls label{margin:0}.background-controls input[type=range]{display:block;padding:0;margin:10px 0;width:100%;accent-color:var(--accent)}.background-controls select{margin-top:8px}.background-settings .hint{font-size:12px;color:var(--muted)}
+@media(max-width:1030px){.background-controls{grid-template-columns:1fr 1fr}}
+
+.header-tools{display:flex;align-items:center;gap:8px}.header-tools #status{max-width:320px;overflow-wrap:anywhere}.icon-button{display:grid;place-items:center;width:36px;height:36px;padding:7px;color:var(--accent);background:var(--accent-soft);border-color:var(--line);flex-shrink:0}.icon-button svg{width:20px;height:20px;fill:currentColor}.icon-button:focus-visible{outline:2px solid var(--accent);outline-offset:3px}#update-result{margin-bottom:16px}#license-text{white-space:pre-wrap;overflow-wrap:anywhere;font:12px/1.7 Consolas,monospace}
+
+.update-notice{display:flex;align-items:center;gap:8px;padding:8px 10px;margin:10px 0;border:1px solid var(--line);border-radius:8px;background:var(--accent-soft);font-size:12px}.update-notice[hidden]{display:none}.update-notice span{flex:1}.update-notice button{padding:4px 8px}
+
+.about-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px}.about-brand{display:flex;align-items:center;gap:18px}.about-brand>img{width:80px;height:80px;flex-shrink:0}.about-brand h2{font-size:24px;margin-bottom:8px}.about-brand p{margin:6px 0}.version-badge{display:inline-block;padding:4px 8px;border-radius:16px;background:var(--accent-soft);color:var(--accent);vertical-align:middle;font-size:12px}.about-licenses{grid-column:1/-1}.check-now{display:inline-flex;gap:8px;align-items:center}.check-now svg{width:20px;height:20px}.check-now:focus-visible,.update-notice:focus-visible{outline:2px solid var(--accent);outline-offset:3px}@media(max-width:1030px){.about-grid{grid-template-columns:1fr}}
+
+nav button{display:flex;align-items:center;gap:14px;min-height:48px;padding:12px 14px;font-family:"Segoe UI","Microsoft YaHei",sans-serif;font-size:16px;font-weight:500;line-height:24px;color:#17212f}nav button svg{width:22px;height:22px;flex:none;fill:currentColor}nav button.active{color:var(--accent);font-weight:600}nav button:hover:not(.active){background:#e9edf1}nav button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}.about-support{grid-column:1/-1}.about-support p{margin:0 0 14px}.about-support .actions button{display:inline-flex;align-items:center;gap:8px}.about-support svg{width:18px;height:18px;fill:#d54f7e}
