@@ -50,7 +50,7 @@ FoxFerry 复用你已有的 Mihomo 内核，负责组织配置、选择线路和
 ## 快速开始
 
 1. 准备已有的 **Clash Verge / Mihomo**。FoxFerry 是助手，不是独立代理内核。
-2. 首个稳定 Release 发布后，从[下载页面](https://github.com/TxHuix0v0x/FoxFerry/releases)获取安装 EXE 和 `SHA256SUMS.txt`，核对后安装。程序包目前未签名。
+2. 首个稳定 Release 发布后，从[下载页面](https://github.com/TxHuix0v0x/FoxFerry/releases)获取安装 EXE ，核对后安装。程序包目前未签名。
 3. 打开「首次接入」，发现已有 Verge 配置并读取订阅；在「分流管理」选择默认线路、添加应用或网站规则。
 4. 生成并在 Verge 中启用「助手专用」本地配置，再回到 FoxFerry 确认接入。**保留原订阅，不覆盖它们。**
 5. 在运行概览核对连接实际归属；后续可使用托盘快捷切换。
