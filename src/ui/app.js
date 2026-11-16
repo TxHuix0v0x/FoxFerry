@@ -226,7 +226,8 @@ function choose(sceneId, alertId, ruleId) {
     const value={nodeId:$('choose-node').value,temporary:$('choose-temp').checked,reconnect:$('choose-reconnect').checked,alertId:alertId||null}; const result=await call(ruleId?'switchRoutingEntry':'switch',ruleId?{...value,id:ruleId}:{...value,sceneId}); if(result?.warning)message(result.warning);
   });
   const fill=()=>{ if(!$('choose-node'))return; const current=$('choose-node').value||scene.selected; $('choose-node').innerHTML=state.subscriptions.find(s=>s.id===$('choose-sub').value)?.nodes.map(n=>option(n.id,`${n.name} · ${n.country||'未知'} (${n.countrySource}) · ${delayText(n)}`,current)).join('')||'<option value="">没有可用节点</option>'; };
-  $('choose-sub').addEventListener('change',fill); ui.chooseFill=fill; fill();
+  $('choose-sub').addEventListener('change',()=>{ fill(); $('choose-same').checked=false; $('choose-auto').checked=false; }); ui.chooseFill=fill; fill();
+  $('choose-node').addEventListener('change',()=>{ $('choose-same').checked=false; $('choose-auto').checked=false; });
   const exclusive=(id,others)=>$(id).addEventListener('change',()=>{ if($(id).checked) for(const other of others) $(other).checked=false; });
   exclusive('choose-auto',['choose-same','choose-temp']); exclusive('choose-same',['choose-auto','choose-temp']); exclusive('choose-temp',['choose-auto','choose-same']);
 }
