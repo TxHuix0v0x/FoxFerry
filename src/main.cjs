@@ -29,7 +29,9 @@ if (!app.requestSingleInstanceLock()) { app.quit(); }
 else if (process.argv.includes('--watch')) runWatcher();
 else runApp();
 function launchArgs(flag) { return [...(app.isPackaged ? [] : [path.resolve(__dirname, '..')]), flag, `--data-dir=${dataDir}`]; }
-function spawnWatcher() {
+async function spawnWatcher() {
+  // Drop a helper left behind by an abrupt exit: its pipe makes the new child exit at listen.
+  await stopWatcher(dataDir).catch(() => {});
   const child = spawn(process.execPath, [path.join(__dirname,'watcher.cjs'), dataDir, process.execPath, ...launchArgs('--follow-host')], { env:{...process.env,ELECTRON_RUN_AS_NODE:'1'}, detached:true, windowsHide:true, stdio:'ignore' });
   child.unref(); return new Promise((resolve,reject)=>{child.once('spawn',resolve);child.once('error',reject);});
 }
