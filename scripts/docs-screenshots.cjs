@@ -2,10 +2,10 @@
 const fs=require('node:fs/promises'),path=require('node:path'),assert=require('node:assert/strict'),{_electron:electron}=require('playwright');
 (async()=>{
  const root=path.resolve(__dirname,'..');await fs.mkdir(path.join(root,'.local'),{recursive:true});await fs.mkdir(path.join(root,'docs/images'),{recursive:true});const dir=await fs.mkdtemp(path.join(root,'.local/docs-'));const env={...process.env};delete env.ELECTRON_RUN_AS_NODE;
- const exe=process.env.APP_EXE||path.join(root,'release/foxferry-0.2.7/win-unpacked/FoxFerry.exe');
+ const exe=process.env.APP_EXE||path.join(root,'release/win-unpacked/FoxFerry.exe');
  const app=await electron.launch({executablePath:exe,args:['--demo','--test-mode',`--data-dir=${dir}`],env});
  try{
-  assert.equal(await app.evaluate(({app})=>app.getVersion()),'0.2.7');
+  assert.equal(await app.evaluate(({app})=>app.getVersion()),'0.2.8');
   const page=await app.firstWindow();await page.waitForSelector('#route-list .scene');await app.evaluate(()=>global.__assistantTest.main.setSize(1400,960));
   assert.ok((await page.evaluate(()=>window.assistant.call('view'))).demo);
   await page.screenshot({path:path.join(root,'docs/images/overview.jpg'),type:'jpeg',quality:82});

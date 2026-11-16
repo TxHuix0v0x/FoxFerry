@@ -21,7 +21,7 @@ FoxFerry 复用你已有的 Mihomo 内核，负责组织配置、选择线路和
 
 ## 一眼看清流量与线路
 
-<img src="docs/images/overview.jpg" width="100%" alt="FoxFerry 0.2.7 运行概览：查看分流线路、连接归属及流量统计，截图均为隔离演示合成数据">
+<img src="docs/images/overview.jpg" width="100%" alt="FoxFerry 0.2.8 运行概览：查看分流线路、连接归属及流量统计，截图均为隔离演示合成数据">
 
 *使用隔离演示的合成订阅和连接；不是实际机场或性能测量。*
 
