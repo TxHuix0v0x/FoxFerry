@@ -1,6 +1,8 @@
 'use strict';
+// Ended connections are kept for review but bounded: a long session never grows past this. Active connections are never evicted.
+const ENDED_LIMIT = 2000;
 class ConnectionHistory {
-  constructor() { this.records = new Map(); this.active = new Set(); this.sampledAt = null; this.ids = []; this.dirty = false; this.snapshot = null; this.bySubscription = new Map(); }
+  constructor() { this.records = new Map(); this.active = new Set(); this.sampledAt = null; this.ids = []; this.dirty = false; this.snapshot = null; this.bySubscription = new Map(); this.endedCount = 0; this.dropped = 0; }
   compareIds(a,b) { return this.records.get(b).firstSeenAt - this.records.get(a).firstSeenAt || a.localeCompare(b); }
   get(id) { return this.records.get(id); }
   observe(rows, now) {
@@ -8,6 +10,7 @@ class ConnectionHistory {
     for (const row of rows) {
       const old = this.records.get(row.id);
       if (!old) { this.ids.push(row.id); this.dirty = true; }
+      else if (old.status === 'ended') this.endedCount--;
       if (!old || old.subscriptionId !== row.subscriptionId) {
         const previous = old && this.bySubscription.get(old.subscriptionId || '@unknown');
         if (previous) { previous.ids.delete(row.id); previous.sorted = null; }
@@ -21,8 +24,21 @@ class ConnectionHistory {
     for (const id of this.active) if (!current.has(id)) {
       const record = this.records.get(id);
       this.records.set(id, { ...record, status: 'ended', endedAt: now });
+      this.endedCount++;
     }
+    this.evict();
     this.active = current; this.sampledAt = now;
+  }
+  // ids are appended in discovery order, so the oldest ended record is the first ended entry from the front.
+  evict() {
+    for (let i = 0; i < this.ids.length && this.endedCount > ENDED_LIMIT;) {
+      const id = this.ids[i], record = this.records.get(id);
+      if (record.status !== 'ended') { i++; continue; }
+      const bucket = this.bySubscription.get(record.subscriptionId || '@unknown');
+      if (bucket) { bucket.ids.delete(id); bucket.sorted = null; }
+      this.records.delete(id); this.ids.splice(i, 1);
+      this.endedCount--; this.dropped++;
+    }
   }
   page({ page = 1, mode = 'live', subscriptionId = '' } = {}) {
     if (!Number.isInteger(page) || page < 1 || !['live', 'pause', 'refresh', 'snapshot', 'resume'].includes(mode) || typeof subscriptionId !== 'string' || (subscriptionId && subscriptionId !== '@unknown' && !/^[a-zA-Z0-9_-]{1,64}$/.test(subscriptionId))) throw Error('无效的连接分页请求');
@@ -46,10 +62,10 @@ class ConnectionHistory {
       if (bucket && !bucket.sorted) bucket.sorted = [...bucket.ids].sort((a,b)=>this.compareIds(a,b));
       for (const id of subscriptionId ? bucket?.sorted || [] : this.ids) if (take(this.records.get(id))) break;
     }
-    return { page, total, active, sampledAt:snapshot ? snapshot.sampledAt : this.sampledAt, paused:!!snapshot, rows, subscriptionId };
+    return { page, total, active, sampledAt:snapshot ? snapshot.sampledAt : this.sampledAt, paused:!!snapshot, rows, subscriptionId, dropped:this.dropped };
   }
-  // shortcut: complete session history and an explicit paused snapshot grow with the session; retention needs a user decision.
+  // Retention is bounded by ENDED_LIMIT; a paused snapshot keeps the rows it already holds until resumed.
   get rows() { return [...this.records.values()]; }
-  clear() { this.records.clear(); this.active.clear(); this.ids = []; this.snapshot = null; this.sampledAt = null; this.dirty = false; this.bySubscription.clear(); }
+  clear() { this.records.clear(); this.active.clear(); this.ids = []; this.snapshot = null; this.sampledAt = null; this.dirty = false; this.bySubscription.clear(); this.endedCount = 0; this.dropped = 0; }
 }
 module.exports = { ConnectionHistory };

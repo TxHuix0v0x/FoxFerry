@@ -59,6 +59,22 @@ test('same connection ID updates without duplicates, preserves first observation
   assert.equal(history.rows[0].status, 'active'); assert.equal(frozen.bytes, 5); assert.equal(frozen.status, 'ended');
 });
 
+test('ended records are capped so a long session stays bounded, and active connections are never evicted', () => {
+  const history = new ConnectionHistory();
+  history.observe([{ id: 'long-lived', subscriptionId: 'main' }], 1);
+  for (let i = 0; i < 2500; i++) history.observe([{ id: 'long-lived', subscriptionId: 'main' }, { id: `short-${i}`, subscriptionId: i % 2 ? 'main' : 'backup' }], 10 + i);
+  history.observe([{ id: 'long-lived', subscriptionId: 'main' }], 3000);
+  assert.equal(history.records.get('long-lived').status, 'active');
+  assert.equal(history.records.size, 2001); assert.equal(history.dropped, 500);
+  assert.ok(!history.records.has('short-0')); assert.ok(history.records.has('short-2499'));
+  const page = history.page();
+  assert.equal(page.total, 2001); assert.equal(page.dropped, 500); assert.equal(page.rows[0].id, 'short-2499');
+  assert.ok(history.page({ subscriptionId: 'backup' }).total <= 1001);
+  const reopened = new ConnectionHistory();
+  reopened.observe([{ id: 'x' }], 1); reopened.observe([], 2); assert.equal(reopened.endedCount, 1);
+  reopened.observe([{ id: 'x' }], 3); assert.equal(reopened.endedCount, 0);
+});
+
 test('session survives pause and scheduler replacement, never persists to disk and clears on exit/restart', async () => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'assistant-history-')); let service;
   try {
