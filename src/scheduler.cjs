@@ -84,9 +84,10 @@ class Scheduler {
     const list = [...new Set(Array.isArray(ids) ? ids : [])].filter(id => known.has(id)).slice(0, 200);
     if (!list.length) throw Error('没有可查询的节点');
     const epoch = this.epoch;
-    for (let index = 0; index < list.length; index += 4) {
+    // Manual probes run with a wider pool than periodic checks so a full subscription answers quickly.
+    for (let index = 0; index < list.length; index += 10) {
       if (this.cancelled || epoch !== this.epoch) break;
-      await Promise.all(list.slice(index, index + 4).map(async id => { try { const result = await this.core.delay(nodeName(id)); this.delays[id] = Number.isFinite(result.delay) && result.delay > 0 ? result.delay : Infinity; } catch { this.delays[id] = Infinity; } }));
+      await Promise.all(list.slice(index, index + 10).map(async id => { try { const result = await this.core.delay(nodeName(id)); this.delays[id] = Number.isFinite(result.delay) && result.delay > 0 ? result.delay : Infinity; } catch { this.delays[id] = Infinity; } }));
     }
     this.delayRevision++;
     return Object.fromEntries(list.map(id => [id, Number.isFinite(this.delays[id]) ? this.delays[id] : null]));

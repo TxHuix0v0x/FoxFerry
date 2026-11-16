@@ -214,15 +214,21 @@ function editEntry(id) {
 function choose(sceneId, alertId, ruleId) {
   const scene=state.scenes.find(s=>s.id===sceneId); if(!scene)throw Error('线路不存在');
   const name=ruleId?state.rules.find(r=>r.id===ruleId)?.name:sceneLabel(sceneId);
-  const alternate=alertId
-    ? '<label><input id="choose-temp" type="checkbox" checked>临时加速，空闲后恢复原路线</label>'
-    : `<label><input id="choose-auto" type="checkbox">自动最低延迟：定时重探并切到最快的节点</label><p class="notice">自动最低延迟会跳过国家限制，按「设置 · 延迟检查周期」（当前 ${Math.round(state.preferences.delayInterval/1000)} 秒）重新探测并切换节点。节点频繁跳转会让出口 IP 变化，部分网站和应用可能判定为异常登录并封禁账号；下载、上传与登录态也可能中断。</p>`;
-  openModal(`<h2>${esc(name)} · 选择路线</h2><p class="muted">${ruleId?'只修改本条分流；跟随默认或共享旧线路的条目会自动获得独立线路。':'此操作修改该线路，跟随它的分流会一起使用新路线。'}</p><label for="choose-sub">订阅</label><select id="choose-sub">${state.subscriptions.map(s=>option(s.id,s.name,scene.subscriptionId)).join('')}</select><label for="choose-node">节点</label><select id="choose-node"></select><div class="actions">${button('choose-probe','查询延迟')}${button(ruleId?'entry-auto':'auto','启用同国自动',`data-id="${ruleId||sceneId}"`)}<span id="choose-probe-status" class="muted" role="status"></span></div>${alternate}<label><input id="choose-reconnect" type="checkbox">切换并重连本条分流${ruleId?'':' / 线路'}</label><p class="notice">默认只切换后续新连接；定向重连可能短暂停顿，TCP/UDP 与下载续传都可能失败。</p>`, async()=>{
-    if($('choose-auto')?.checked){ await call(ruleId?'switchRoutingEntry':'auto', ruleId?{id:ruleId,operation:'auto',anyCountry:true}:{sceneId,anyCountry:true}); message('已启用自动最低延迟：下一轮探测后会切到延迟最低的节点。'); return; }
-    const value={nodeId:$('choose-node').value,temporary:!!$('choose-temp')?.checked,reconnect:$('choose-reconnect').checked,alertId:alertId||null}; const result=await call(ruleId?'switchRoutingEntry':'switch',ruleId?{...value,id:ruleId}:{...value,sceneId}); if(result?.warning)message(result.warning);
+  const autoSame=!alertId && scene.mode==='auto' && !!scene.countryLock, autoAny=!alertId && scene.mode==='auto' && !scene.countryLock;
+  openModal(`<h2>${esc(name)} · 选择路线</h2><p class="muted">${ruleId?'只修改本条分流；跟随默认或共享旧线路的条目会自动获得独立线路。':'此操作修改该线路，跟随它的分流会一起使用新路线。'}</p><label for="choose-sub">订阅</label><select id="choose-sub">${state.subscriptions.map(s=>option(s.id,s.name,scene.subscriptionId)).join('')}</select><label for="choose-node">节点</label><select id="choose-node"></select><div class="actions choose-actions">${button('choose-probe','查询延迟')}<span id="choose-probe-status" class="muted" role="status"></span></div><label class="switch-row"><span>启用同国自动</span><input id="choose-same" type="checkbox" role="switch" ${autoSame?'checked':''}></label><label><input id="choose-auto" type="checkbox" ${autoAny?'checked':''}>自动最低延迟（不限国家，定时重探）</label><p class="notice">同国自动与自动最低延迟互斥；自动最低延迟会跳过国家限制，按「设置 · 延迟检查周期」（当前 ${Math.round(state.preferences.delayInterval/1000)} 秒）重新探测并切换节点。节点频繁跳转会让出口 IP 变化，部分网站和应用可能判定为异常登录并封禁账号；下载、上传与登录态也可能中断。</p><label><input id="choose-temp" type="checkbox" ${alertId?'checked':''}>临时加速，空闲后恢复原路线</label><label><input id="choose-reconnect" type="checkbox">切换并重连本条分流${ruleId?'':' / 线路'}</label><p class="notice">两项自动模式都不勾选时，按所选节点手动锁定；临时加速与之互斥。默认只切换后续新连接；定向重连可能短暂停顿，TCP/UDP 与下载续传都可能失败。</p>`, async()=>{
+    if($('choose-auto').checked){ await call(ruleId?'switchRoutingEntry':'auto', ruleId?{id:ruleId,operation:'auto',anyCountry:true}:{sceneId,anyCountry:true}); message('已启用自动最低延迟：下一轮探测后会切到延迟最低的节点。'); return; }
+    if($('choose-same').checked){
+      const lock=scene.countryLock || allNodes().find(n=>n.id===$('choose-node').value)?.country;
+      if(!lock) throw Error('同国自动需要已知国家：请选择一个带国家标注的节点，或改用「自动最低延迟」');
+      await call(ruleId?'switchRoutingEntry':'auto', ruleId?{id:ruleId,operation:'auto',country:lock}:{sceneId,country:lock});
+      message(`已启用同国自动：锁定 ${lock}，只在该国家内选最快节点。`); return;
+    }
+    const value={nodeId:$('choose-node').value,temporary:$('choose-temp').checked,reconnect:$('choose-reconnect').checked,alertId:alertId||null}; const result=await call(ruleId?'switchRoutingEntry':'switch',ruleId?{...value,id:ruleId}:{...value,sceneId}); if(result?.warning)message(result.warning);
   });
   const fill=()=>{ if(!$('choose-node'))return; const current=$('choose-node').value||scene.selected; $('choose-node').innerHTML=state.subscriptions.find(s=>s.id===$('choose-sub').value)?.nodes.map(n=>option(n.id,`${n.name} · ${n.country||'未知'} (${n.countrySource}) · ${delayText(n)}`,current)).join('')||'<option value="">没有可用节点</option>'; };
   $('choose-sub').addEventListener('change',fill); ui.chooseFill=fill; fill();
+  const exclusive=(id,others)=>$(id).addEventListener('change',()=>{ if($(id).checked) for(const other of others) $(other).checked=false; });
+  exclusive('choose-auto',['choose-same','choose-temp']); exclusive('choose-same',['choose-auto','choose-temp']); exclusive('choose-temp',['choose-auto','choose-same']);
 }
 async function act(action,el) {
   const id=el.dataset.id;
