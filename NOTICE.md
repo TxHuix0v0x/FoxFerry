@@ -2,6 +2,8 @@
 
 本项目代码使用 MIT；第三方代码及素材保留各自许可证。
 
+根目录 `LICENSE` 只保留标准 MIT 全文，便于 GitHub 自动识别；素材许可、上游署名与依赖许可统一在本文件及 `licenses/` 中声明。
+
 ## Codex Maid Widget
 
 来源：[Feeesack/codex-maid-widget](https://github.com/Feeesack/codex-maid-widget)，核查提交 `c13b0706c36d09cd06dfc7dcb69ab185a52c3eef`。
