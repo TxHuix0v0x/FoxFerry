@@ -91,7 +91,7 @@ async function runApp() {
     let undo;
     try {
       if (app.isPackaged) undo = await configureLogin(app, {name:'FoxFerryFollow',path:process.execPath,args:launchArgs('--watch')}, enabled, previous !== undefined);
-      if (enabled) { await spawnWatcher(); await waitForWatcher(dataDir); connectWatcher(); }
+      if (enabled) { try { await spawnWatcher(); await waitForWatcher(dataDir); } catch { await stopWatcher(dataDir).catch(() => {}); await spawnWatcher(); await waitForWatcher(dataDir); } connectWatcher(); }
       else { clearTimeout(hostTimer); await stopWatcher(dataDir); hostSocket?.destroy(); hostSocket = null; }
     } catch(error) {
       if(undo) try { await undo(); } catch(rollback) { throw Error(`${error.message}；${rollback.message}`); }

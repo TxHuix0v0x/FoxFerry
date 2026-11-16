@@ -46,7 +46,7 @@ if (require.main === module) {
   } });
 }
 async function waitForWatcher(dir) {
-  const until = Date.now()+4000;
+  const until = Date.now()+8000;
   while(true) { try { const socket = await new Promise((resolve,reject)=>{const s=net.connect(watcherPipe(dir));s.once('connect',()=>resolve(s));s.once('error',reject);}); socket.destroy(); return; } catch(error) { if(Date.now()>=until)throw Error('后台联动助手未能启动'); await new Promise(r=>setTimeout(r,100)); } }
 }
 async function stopWatcher(dir) {
