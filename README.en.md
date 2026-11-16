@@ -29,7 +29,7 @@ Aggregate several subscriptions while preserving node ownership, even when names
 
 ### Selection and recovery
 
-Automatically select within the current subscription and locked country, or lock a node manually. Temporarily use another route and restore the original when traffic becomes idle.
+Automatically select within the current subscription and locked country, lock a node manually, or switch to the lowest-latency node across countries (exit-IP and account risks are shown before enabling). Temporarily use another route and restore the original when traffic becomes idle. Node latency can be queried from both subscription management and the route picker.
 
 ### Understand observed connections
 

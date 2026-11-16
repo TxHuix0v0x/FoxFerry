@@ -48,3 +48,24 @@ test('committed transaction with delayed journal cleanup is retained on restart'
     assert.equal(await fs.readFile(service.file, 'utf8'), 'committed config'); assert.equal(store.state.setup.lastTransaction, 'committed-1'); assert.ok(store.state.setup.ready);
   } finally { await service?.close(); await fs.rm(dir, { recursive: true, force: true }); }
 });
+
+test('auto lowest latency clears the country scope and probe results reach the view', async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'assistant-probe-')); let service;
+  try {
+    service = await new Service(new Store(dir), { demo: true }).init(); clearInterval(service.timer);
+    const scene = service.state.scenes[0]; scene.mode = 'manual'; scene.countryLock = 'JP'; scene.countries = ['JP']; scene.candidates = [scene.selected];
+    await service.store.save(service.state);
+    await service.command('auto', { sceneId: scene.id, anyCountry: true });
+    const next = service.state.scenes.find(s => s.id === scene.id);
+    assert.equal(next.mode, 'auto'); assert.equal(next.countryLock, null); assert.deepEqual(next.countries, []); assert.deepEqual(next.candidates, []);
+    const ids = service.state.subscriptions[0].nodes.map(n => n.id);
+    const probed = await service.command('probeDelays', { ids });
+    assert.ok(Object.values(probed.result).every(v => typeof v === 'number' && v > 0));
+    assert.ok(probed.state.subscriptions[0].nodes[0].delay > 0); assert.equal(probed.state.subscriptions[0].nodes[0].delayFailed, false);
+    service.core.delay = async () => { throw Error('timeout'); };
+    const failed = await service.command('probeDelays', { ids });
+    assert.equal(failed.state.subscriptions[0].nodes[0].delay, null); assert.equal(failed.state.subscriptions[0].nodes[0].delayFailed, true);
+    await service.command('pause');
+    await assert.rejects(() => service.command('probeDelays', { ids }), /请先接入调度/);
+  } finally { await service?.close(); await fs.rm(dir, { recursive: true, force: true }); }
+});

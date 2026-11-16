@@ -256,7 +256,7 @@ class Service {
   }
   view({ history = true } = {}) {
     const state = { ...this.state };
-    state.subscriptions = state.subscriptions.map(s => ({ id: s.id, name: s.name, kind: s.kind, updatedAt: s.updatedAt, error: s.error, metadata: s.metadata, nodes: s.nodes.map(n => ({ id: n.id, name: n.name, subscriptionId: n.subscriptionId, udp: this.capabilities?.[n.id], country: M.country(n), countrySource: n.detectedCountry ? '出口检测' : n.nameCountry ? '名称标注' : '未知', delay: Number.isFinite(this.scheduler?.delays[n.id]) ? this.scheduler.delays[n.id] : null })) }));
+    state.subscriptions = state.subscriptions.map(s => ({ id: s.id, name: s.name, kind: s.kind, updatedAt: s.updatedAt, error: s.error, metadata: s.metadata, nodes: s.nodes.map(n => ({ id: n.id, name: n.name, subscriptionId: n.subscriptionId, udp: this.capabilities?.[n.id], country: M.country(n), countrySource: n.detectedCountry ? '出口检测' : n.nameCountry ? '名称标注' : '未知', delay: Number.isFinite(this.scheduler?.delays[n.id]) ? this.scheduler.delays[n.id] : null, delayFailed: this.scheduler?.delays[n.id] === Infinity })) }));
     return { ...state, appVersion, demo: this.demo, paused: this.paused, status: this.status, errors: this.errors, metrics: this.scheduler?.metrics || {}, subscriptionBytes: this.scheduler?.subscriptionBytes || {}, applicationBytes: this.scheduler?.applicationBytes || {}, ...(history ? { connections: this.connectionHistory.rows } : {}), connectionsUpdatedAt: this.connectionHistory.sampledAt, alerts: this.scheduler?.alerts.filter(a => a.expires > Date.now()) || [], configFile: this.file };
   }
   summary({ revision, overview = true } = {}) {
@@ -271,6 +271,15 @@ class Service {
     if (action === 'view') return this.view({ history: false });
     if (action === 'summary') return this.summary(value);
     if (action === 'connections') return this.connectionHistory.page(value);
+    // Manual latency probes are user-triggered and can take a while; keep them out of the serial queue.
+    if (action === 'probeDelays') {
+      try {
+        if (this.paused || !this.core || !this.scheduler) throw Error('请先接入调度，再查询节点延迟');
+        if (this.probing) throw Error('正在查询节点延迟，请稍候');
+        this.probing = true;
+        return { result: await this.scheduler.probe(value?.ids), state: this.view({ history: false }) };
+      } catch (e) { throw Error(redact(e.message)); } finally { this.probing = false; }
+    }
     return this.serial(async () => {
       try {
         let result;
@@ -293,7 +302,7 @@ class Service {
           case 'pause': this.paused = true; this.status = '用户已暂停调度'; this.scheduler?.invalidate(); break;
           case 'switch': if (this.paused) throw Error('请先接入调度'); await this.checkKernel(true); result = await this.scheduler.switch(value.sceneId, value.nodeId, value); break;
           case 'restore': if (this.paused) throw Error('请先接入调度'); await this.scheduler.restore(value.sceneId); break;
-          case 'auto': { if (this.paused) throw Error('请先接入调度'); await this.guard(); const next = structuredClone(this.state); const s = next.scenes.find(s => s.id === value.sceneId); if (!s || s.temporary) throw Error('请先结束临时加速'); s.mode = 'auto'; await this.store.save(next); this.scheduler.invalidate(); this.scheduler.lastDelay = null; break; }
+          case 'auto': { if (this.paused) throw Error('请先接入调度'); await this.guard(); const next = structuredClone(this.state); const s = next.scenes.find(s => s.id === value.sceneId); if (!s || s.temporary) throw Error('请先结束临时加速'); s.mode = 'auto'; if (value.anyCountry) { s.countryLock = null; s.countries = []; s.candidates = []; } await this.store.save(next); this.scheduler.invalidate(); this.scheduler.lastDelay = null; break; }
           case 'keep': this.scheduler.keep(value.id); break;
           case 'probe': result = await this.probe(value.nodeId); break;
           default: throw Error('不支持的操作');
@@ -313,7 +322,8 @@ class Service {
       if (operation === 'restore') return this.scheduler.restore(rule.sceneId);
       const next = structuredClone(this.state), scene = next.scenes.find(s => s.id === rule.sceneId);
       if (scene.temporary) throw Error('请先恢复临时加速');
-      scene.mode = 'auto'; await this.store.save(next); this.scheduler.invalidate(); this.scheduler.lastDelay = null; return;
+      scene.mode = 'auto'; if (value.anyCountry) { scene.countryLock = null; scene.countries = []; scene.candidates = []; }
+      await this.store.save(next); this.scheduler.invalidate(); this.scheduler.lastDelay = null; return;
     }
     if (operation === 'restore') throw Error('本条分流尚未设置独立临时线路');
     const previous = structuredClone(this.state), next = structuredClone(this.state);
@@ -326,7 +336,7 @@ class Service {
       if (scene.subscriptionId !== node.subscriptionId) scene.candidates = [];
       Object.assign(scene, { selected: node.id, subscriptionId: node.subscriptionId, countryLock: M.country(node), mode: 'manual' });
       if (value.reconnect) connections = (await this.core.connections()).connections || [];
-    } else scene.mode = 'auto';
+    } else { scene.mode = 'auto'; if (value.anyCountry) { scene.countryLock = null; scene.countries = []; scene.candidates = []; } }
     await this.commit(next);
     const failed = [];
     if (value.reconnect) {

@@ -58,6 +58,15 @@ test('latency probes do not block connection sampling; stale results cannot sele
   await f.scheduler.sample(); assert.ok(f.scheduler.metrics.daily);
   f.scheduler.invalidate(); release(); await probing; assert.equal(f.writes.length, 0);
 });
+test('manual latency probe keeps per-node results, marks failures and ignores unknown ids', async () => {
+  const f = fixture(); const [a, b] = f.state.subscriptions[0].nodes; const revision = f.scheduler.delayRevision;
+  f.core.delay = async name => { if (name === nodeName(b.id)) throw Error('timeout'); return { delay: 25 }; };
+  assert.deepEqual(await f.scheduler.probe([a.id, b.id, a.id, 'missing']), { [a.id]: 25, [b.id]: null });
+  assert.equal(f.scheduler.delays[a.id], 25); assert.equal(f.scheduler.delays[b.id], Infinity);
+  assert.equal(f.scheduler.delayRevision, revision + 1);
+  await assert.rejects(() => f.scheduler.probe([]), /没有可查询的节点/);
+});
+
 test('manual selection preserves same-subscription candidate edits and choosing permanent ends acceleration', async () => {
   const f = fixture(); const s = f.state.scenes[0]; s.candidates = [s.selected]; s.countries = ['JP'];
   await f.scheduler.switch(s.id, f.state.subscriptions[0].nodes[1].id); assert.equal(s.candidates.length, 1); assert.deepEqual(s.countries, ['JP']);

@@ -79,6 +79,18 @@ class Scheduler {
     const alert = { id: randomUUID(), sceneId: scene.id, kind, message, suggested, epoch: this.epoch, selected: scene.selected, expires: this.clock() + 120000 };
     this.alerts.push(alert); this.runtime(scene.id).alerted = this.clock(); this.notify(alert);
   }
+  async probe(ids) {
+    const state = this.state(), known = new Set(nodes(state).map(n => n.id));
+    const list = [...new Set(Array.isArray(ids) ? ids : [])].filter(id => known.has(id)).slice(0, 200);
+    if (!list.length) throw Error('没有可查询的节点');
+    const epoch = this.epoch;
+    for (let index = 0; index < list.length; index += 4) {
+      if (this.cancelled || epoch !== this.epoch) break;
+      await Promise.all(list.slice(index, index + 4).map(async id => { try { const result = await this.core.delay(nodeName(id)); this.delays[id] = Number.isFinite(result.delay) && result.delay > 0 ? result.delay : Infinity; } catch { this.delays[id] = Infinity; } }));
+    }
+    this.delayRevision++;
+    return Object.fromEntries(list.map(id => [id, Number.isFinite(this.delays[id]) ? this.delays[id] : null]));
+  }
   async checkDelays() {
     const state = this.state(); const now = this.clock();
     const epoch = this.epoch;

@@ -4,7 +4,7 @@ const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;
 const format = (n = 0) => { const units = ['B', 'KiB', 'MiB', 'GiB', 'TiB']; let i = 0; while (n >= 1024 && i < units.length - 1) { n /= 1024; i++; } return `${n.toFixed(i ? 1 : 0)} ${units[i]}`; };
 const button = (action, label, data = '', cls = '') => `<button data-action="${action}" ${data} class="${cls}">${label}</button>`;
 const option = (value, label, current) => `<option value="${esc(value)}" ${String(value) === String(current) ? 'selected' : ''}>${esc(label)}</option>`;
-const pager = new ConnectionPager(), ui = { summaryOpen: false, connectionSubscription: '' };
+const pager = new ConnectionPager(), ui = { summaryOpen: false, connectionSubscription: '', openSub: '', chooseFill: null };
 let state, page = 'overview', modalSubmit, busy = false, scanResult = null;
 const backgroundDefault = { mode:'color', preset:'white', imageId:'', imageName:'', opacity:25, blur:0, fit:'cover', panelOpacity:100, panelBlur:0 };
 const backgroundPresets = [['white','霁雪'],['red','桃夭'],['orange','杏霞'],['yellow','桂月'],['cyan','碧汀'],['purple','藤烟'],['sage','苔影'],['cool','远岚'],['warm','暖玉']];
@@ -88,6 +88,21 @@ function allNodes() { return state.subscriptions.flatMap(s => s.nodes); }
 function subName(id) { return state.subscriptions.find(s => s.id === id)?.name || '订阅不可用'; }
 function nodeName(id) { return allNodes().find(n => n.id === id)?.name || '不可用 · 拒绝连接'; }
 function sceneLabel(id) { if (id === state.defaultSceneId) return '默认线路'; const refs = state.rules.filter(r => r.sceneId === id); return refs.length === 1 ? refs[0].name : (state.scenes.find(s => s.id === id)?.name || '其他 / 直连') + (refs.length > 1 ? '（共享旧线路）' : ''); }
+const delayText = node => node.delay ? `${node.delay} ms` : node.delayFailed ? '超时' : '—';
+function setStatus() {
+  const el = $('status'), retry = !state.demo && state.paused;
+  el.textContent = state.status + (retry ? ' · 点击重新接入' : '');
+  el.classList.toggle('status-action', retry);
+  if (retry) { el.setAttribute('role', 'button'); el.tabIndex = 0; el.title = '调度已暂停或异常，点击重新接入'; }
+  else { el.setAttribute('role', 'status'); el.removeAttribute('tabindex'); el.removeAttribute('title'); }
+}
+async function retryAttach() {
+  if (busy || !state || state.demo || !state.paused) return;
+  busy = true;
+  try { await call('attach'); message('已重新接入调度。'); render(); }
+  catch (error) { message(`重新接入失败：${error.message}`, true); }
+  finally { busy = false; }
+}
 function openModal(html, submit) { $('edit-content').innerHTML = html; modalSubmit = submit; $('editor').showModal(); }
 function setHtml(el, html) { if (el._html !== html) { el.innerHTML = html; el._html = html; } }
 function keyed(container, items, make, update) {
@@ -110,7 +125,7 @@ function updateOverview() {
   keyed($('route-list'), targets, t => { const el = document.createElement('article'); el.className = 'panel scene'; el.innerHTML = '<div><h3 data-field="name"></h3><p data-field="mode" class="muted"></p></div><div><h3 data-field="subscription"></h3><p data-field="node" class="muted"></p></div><div><h3 data-field="speed"></h3><p data-field="connections" class="muted"></p></div><div class="actions" data-field="actions"></div>'; return el; }, (el, t) => {
     const s = state.scenes.find(s => s.id === t.sceneId), m = state.metrics[s.id] || {}, node = allNodes().find(n => n.id === s.selected), inherited = !!t.ruleId && s.id === state.defaultSceneId, shared = state.rules.filter(r => r.sceneId === s.id).length > 1;
     const text = (field, value) => { el.querySelector(`[data-field="${field}"]`).textContent = value; };
-    text('name',t.name); text('mode',`${!t.ruleId ? '日常默认' : inherited ? '跟随默认线路' : shared ? '共享旧线路' : '独立线路'} · ${s.temporary ? '临时加速' : s.mode === 'auto' ? '自动' : '手动锁定'} · ${s.countryLock || '国家未知'}`);
+    text('name',t.name); text('mode',`${!t.ruleId ? '日常默认' : inherited ? '跟随默认线路' : shared ? '共享旧线路' : '独立线路'} · ${s.temporary ? '临时加速' : s.mode === 'auto' ? (s.countryLock ? '同国自动' : '最低延迟自动') : '手动锁定'} · ${s.countryLock || '不限国家'}`);
     text('subscription',subName(s.subscriptionId)); text('node',`${nodeName(s.selected)} · ${node?.countrySource || '未知'}${node?.delay ? ' · ' + node.delay + 'ms' : ''}${node?.udp === false ? ' · UDP 不支持（拒绝回落）' : ''}`);
     text('speed',inherited || (t.ruleId && shared) ? '共享线路' : format(m.speed) + '/s'); text('connections',`${m.connections || 0} 条线路连接 · 旧路线 ${m.oldConnections || 0} 条`);
     setHtml(el.querySelector('[data-field="actions"]'), button(t.ruleId ? 'entry-choose' : 'choose','选择路线',`data-id="${t.ruleId || s.id}"`) + (s.temporary && (!t.ruleId || !inherited && !shared) ? button(t.ruleId ? 'entry-restore' : 'restore','恢复',`data-id="${t.ruleId || s.id}"`) : ''));
@@ -138,7 +153,7 @@ function rules() {
 }
 
 function subscriptions() {
-  return `<div class="section-head"><h2>统一管理，独立更新</h2><div class="actions">${button('import', '读取 Verge 订阅')}${button('add-sub', '＋ 添加订阅', '', 'primary')}</div></div><p class="muted">Verge 订阅由 Verge 更新；助手添加的订阅默认每日更新。仅支持含 proxies 的 Mihomo YAML。</p>${state.subscriptions.map(s => `<article class="panel subscription"><div class="section-head"><div><h3>${esc(s.name)}</h3><p class="muted">${s.kind === 'verge' ? 'Verge 引用' : s.kind === 'url' ? 'HTTPS 订阅' : '本地文件'} · ${s.nodes.length} 个节点 · 更新于 ${new Date(s.updatedAt).toLocaleString()}</p></div><div class="actions">${button('refresh', '更新', `data-id="${s.id}"`)}${button('remove-sub', '移除', `data-id="${s.id}"`, 'danger')}</div></div>${s.error ? `<p class="notice">${esc(s.error)}</p>` : ''}<small>本次观测 ${format(state.subscriptionBytes[s.id] || 0)}</small><details><summary>查看节点与国家来源</summary><table class="nodes"><thead><tr><th>节点</th><th>国家</th><th>来源</th><th>检测</th></tr></thead><tbody>${s.nodes.map(n => `<tr><td>${esc(n.name)}</td><td>${esc(n.country || '未知')}</td><td>${esc(n.countrySource)}</td><td>${button('probe', '检测实际出口', `data-id="${n.id}"`)}</td></tr>`).join('')}</tbody></table><p class="notice">实际出口检测使用独立测试内核向 Cloudflare 发送少量流量，不改业务组选择；名称标注并非已验证地理位置。</p></details></article>`).join('') || '<div class="panel empty">尚未添加订阅。可先读取 Verge 已导入的订阅。</div>'}`;
+  return `<div class="section-head"><h2>统一管理，独立更新</h2><div class="actions">${button('import', '读取 Verge 订阅')}${button('add-sub', '＋ 添加订阅', '', 'primary')}</div></div><p class="muted">Verge 订阅由 Verge 更新；助手添加的订阅默认每日更新。仅支持含 proxies 的 Mihomo YAML。</p>${state.subscriptions.map(s => `<article class="panel subscription"><div class="section-head"><div><h3>${esc(s.name)}</h3><p class="muted">${s.kind === 'verge' ? 'Verge 引用' : s.kind === 'url' ? 'HTTPS 订阅' : '本地文件'} · ${s.nodes.length} 个节点 · 更新于 ${new Date(s.updatedAt).toLocaleString()}</p></div><div class="actions">${button('probe-delays', '查询节点延迟', `data-id="${s.id}"`)}${button('refresh', '更新', `data-id="${s.id}"`)}${button('remove-sub', '移除', `data-id="${s.id}"`, 'danger')}</div></div>${s.error ? `<p class="notice">${esc(s.error)}</p>` : ''}<small>本次观测 ${format(state.subscriptionBytes[s.id] || 0)}</small><details ${ui.openSub === s.id ? 'open' : ''} data-sub="${s.id}"><summary>查看节点与国家来源</summary><table class="nodes"><thead><tr><th>节点</th><th>国家</th><th>来源</th><th>延迟</th><th>检测</th></tr></thead><tbody>${s.nodes.map(n => `<tr><td>${esc(n.name)}</td><td>${esc(n.country || '未知')}</td><td>${esc(n.countrySource)}</td><td>${delayText(n)}</td><td>${button('probe', '检测实际出口', `data-id="${n.id}"`)}</td></tr>`).join('')}</tbody></table><p class="notice">「查询节点延迟」向该订阅每个节点各发一次小请求，延迟高低不代表带宽；「检测实际出口」使用独立测试内核向 Cloudflare 发送少量流量，不改业务组选择；名称标注并非已验证地理位置。</p></details></article>`).join('') || '<div class="panel empty">尚未添加订阅。可先读取 Verge 已导入的订阅。</div>'}`;
 }
 
 function setup() {
@@ -157,7 +172,7 @@ function about() {
 function render() {
   if (!state || $('editor').open) return;
   $('app-version').textContent = `v${state.appVersion}`;
-  $('page-title').textContent = titles[page]; $('status').textContent = state.status;
+  $('page-title').textContent = titles[page]; setStatus();
   document.querySelectorAll('[data-page]').forEach(el => {const active=el.dataset.page===page;el.classList.toggle('active',active);if(active)el.setAttribute('aria-current','page');else el.removeAttribute('aria-current');});
   if (page === 'overview') {
     if (!$('route-list')) { $('content').innerHTML = overview(); $('application-summary').open = ui.summaryOpen; $('application-summary').addEventListener('toggle', () => { ui.summaryOpen = $('application-summary')?.open ?? ui.summaryOpen; }); }
@@ -199,10 +214,15 @@ function editEntry(id) {
 function choose(sceneId, alertId, ruleId) {
   const scene=state.scenes.find(s=>s.id===sceneId); if(!scene)throw Error('线路不存在');
   const name=ruleId?state.rules.find(r=>r.id===ruleId)?.name:sceneLabel(sceneId);
-  openModal(`<h2>${esc(name)} · 选择路线</h2><p class="muted">${ruleId?'只修改本条分流；跟随默认或共享旧线路的条目会自动获得独立线路。':'此操作修改该线路，跟随它的分流会一起使用新路线。'}</p><label for="choose-sub">订阅</label><select id="choose-sub">${state.subscriptions.map(s=>option(s.id,s.name,scene.subscriptionId)).join('')}</select><label for="choose-node">节点</label><select id="choose-node"></select><label><input id="choose-temp" type="checkbox" ${alertId?'checked':''}>临时加速，空闲后恢复原路线</label><label><input id="choose-reconnect" type="checkbox">切换并重连本条分流${ruleId?'':' / 线路'}</label><p class="notice">默认只切换后续新连接；定向重连可能短暂停顿，TCP/UDP 与下载续传都可能失败。</p>${button(ruleId?'entry-auto':'auto','启用同国自动',`data-id="${ruleId||sceneId}"`)}`, async()=>{
-    const value={nodeId:$('choose-node').value,temporary:$('choose-temp').checked,reconnect:$('choose-reconnect').checked,alertId:alertId||null}; const result=await call(ruleId?'switchRoutingEntry':'switch',ruleId?{...value,id:ruleId}:{...value,sceneId}); if(result?.warning)message(result.warning);
+  const alternate=alertId
+    ? '<label><input id="choose-temp" type="checkbox" checked>临时加速，空闲后恢复原路线</label>'
+    : `<label><input id="choose-auto" type="checkbox">自动最低延迟：定时重探并切到最快的节点</label><p class="notice">自动最低延迟会跳过国家限制，按「设置 · 延迟检查周期」（当前 ${Math.round(state.preferences.delayInterval/1000)} 秒）重新探测并切换节点。节点频繁跳转会让出口 IP 变化，部分网站和应用可能判定为异常登录并封禁账号；下载、上传与登录态也可能中断。</p>`;
+  openModal(`<h2>${esc(name)} · 选择路线</h2><p class="muted">${ruleId?'只修改本条分流；跟随默认或共享旧线路的条目会自动获得独立线路。':'此操作修改该线路，跟随它的分流会一起使用新路线。'}</p><label for="choose-sub">订阅</label><select id="choose-sub">${state.subscriptions.map(s=>option(s.id,s.name,scene.subscriptionId)).join('')}</select><label for="choose-node">节点</label><select id="choose-node"></select><div class="actions">${button('choose-probe','查询延迟')}${button(ruleId?'entry-auto':'auto','启用同国自动',`data-id="${ruleId||sceneId}"`)}<span id="choose-probe-status" class="muted" role="status"></span></div>${alternate}<label><input id="choose-reconnect" type="checkbox">切换并重连本条分流${ruleId?'':' / 线路'}</label><p class="notice">默认只切换后续新连接；定向重连可能短暂停顿，TCP/UDP 与下载续传都可能失败。</p>`, async()=>{
+    if($('choose-auto')?.checked){ await call(ruleId?'switchRoutingEntry':'auto', ruleId?{id:ruleId,operation:'auto',anyCountry:true}:{sceneId,anyCountry:true}); message('已启用自动最低延迟：下一轮探测后会切到延迟最低的节点。'); return; }
+    const value={nodeId:$('choose-node').value,temporary:!!$('choose-temp')?.checked,reconnect:$('choose-reconnect').checked,alertId:alertId||null}; const result=await call(ruleId?'switchRoutingEntry':'switch',ruleId?{...value,id:ruleId}:{...value,sceneId}); if(result?.warning)message(result.warning);
   });
-  const fill=()=>{$('choose-node').innerHTML=state.subscriptions.find(s=>s.id===$('choose-sub').value)?.nodes.map(n=>option(n.id,`${n.name} · ${n.country||'未知'} (${n.countrySource})`,scene.selected)).join('') || '<option value="">没有可用节点</option>';}; $('choose-sub').addEventListener('change',fill); fill();
+  const fill=()=>{ if(!$('choose-node'))return; const current=$('choose-node').value||scene.selected; $('choose-node').innerHTML=state.subscriptions.find(s=>s.id===$('choose-sub').value)?.nodes.map(n=>option(n.id,`${n.name} · ${n.country||'未知'} (${n.countrySource}) · ${delayText(n)}`,current)).join('')||'<option value="">没有可用节点</option>'; };
+  $('choose-sub').addEventListener('change',fill); ui.chooseFill=fill; fill();
 }
 async function act(action,el) {
   const id=el.dataset.id;
@@ -238,6 +258,22 @@ async function act(action,el) {
     case 'add-sub': openModal('<h2>添加 Mihomo 订阅</h2><label for="sub-name">名称</label><input id="sub-name" required><label for="sub-url">HTTPS 订阅链接</label><input id="sub-url" type="url" placeholder="https://…"><label for="sub-file">或本地 YAML 文件</label><div class="inline-field"><input id="sub-file" readonly><button type="button" data-action="pick-sub">选择文件</button></div><p class="muted">链接和节点凭据只保存在用户数据目录。</p>', async () => { await call('addSubscription', { name: $('sub-name').value, url: $('sub-url').value || undefined, file: $('sub-file').value || undefined }); }); break;
     case 'pick-sub': { const file = await call('pick', { kind: 'yaml' }); if (file) { $('sub-file').value = file; $('sub-url').value = ''; } break; }
     case 'refresh': await call('refresh', { id }); message('订阅更新完成。'); break;
+    case 'probe-delays': {
+      const sub=state.subscriptions.find(s=>s.id===id), ids=sub?.nodes.map(n=>n.id)||[];
+      if(!ids.length)throw Error('该订阅没有可用节点');
+      ui.openSub=id; message(`正在查询 ${ids.length} 个节点的延迟…`);
+      const values=Object.values(await call('probeDelays',{ids})||{}), failed=values.filter(v=>v===null).length;
+      message(`延迟查询完成：${values.length-failed} 个可用，${failed} 个超时或不可达。`);
+      break;
+    }
+    case 'choose-probe': {
+      const list=state.subscriptions.find(s=>s.id===$('choose-sub')?.value)?.nodes||[], label=$('choose-probe-status');
+      if(!list.length)throw Error('该订阅没有可用节点');
+      if(label)label.textContent=`正在查询 ${list.length} 个节点…`;
+      try { await call('probeDelays',{ids:list.map(n=>n.id)}); ui.chooseFill?.(); if(label)label.textContent='延迟已更新'; }
+      catch(error){ if(label)label.textContent=`查询失败：${error.message}`; }
+      break;
+    }
     case 'remove-sub': await call('removeSubscription', { id }); break;
     case 'probe': message('正在通过独立测试内核检测出口…'); { const result = await call('probe', { nodeId: id }); message(`实际出口国家：${result.country}。若与锁定国家不同，相关线路已进入手动模式。`); } break;
     case 'preset': if (!state.subscriptions.length) throw Error('请先添加订阅'); openModal(`<h2>主副订阅预设</h2><label for="preset-main">主订阅（日常）</label><select id="preset-main">${state.subscriptions.map(s => option(s.id, s.name)).join('')}</select><label for="preset-secondary">副订阅（独立下载线路）</label><select id="preset-secondary">${state.subscriptions.map(s => option(s.id, s.name, state.subscriptions[1]?.id)).join('')}</select><p class="notice">补充缺失的日常、IDM、qBittorrent 线路；已有编辑保留。已有线路可单独编辑目标订阅。</p>`, () => call('preset', { main: $('preset-main').value, secondary: $('preset-secondary').value })); break;
@@ -245,6 +281,9 @@ async function act(action,el) {
   }
 }
 $('cancel').onclick=()=>$('editor').close();
+$('status').addEventListener('click',retryAttach);
+$('status').addEventListener('keydown',event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();retryAttach();}});
+document.addEventListener('toggle',event=>{const el=event.target.closest?.('details[data-sub]');if(el)ui.openSub=el.open?el.dataset.sub:'';},true);
 $('edit-form').onsubmit=async event=>{event.preventDefault();if(busy)return;busy=true;try{await modalSubmit();$('editor').close();render();}catch(e){message(e.message,true);}finally{busy=false;}};
 document.addEventListener('click',async event=>{
   const preset=event.target.closest('[data-bg-preset]'); if(preset){backgroundDraft.preset=preset.dataset.bgPreset; backgroundDraft.mode='color'; refreshBackgroundControls(); applyBackground(); saveBackground(); return;}
@@ -290,7 +329,7 @@ async function refreshView() {
       for (const key of ['metrics','subscriptionBytes','applicationBytes','errors','alerts']) state[key] = value[key];
       if (!pager.paused) await fetchConnections();
       render();
-    } else $('status').textContent = state.status;
+    } else setStatus();
   } catch(e) { message(e.message,true); }
   finally { refreshing = false; }
 }
