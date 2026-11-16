@@ -46,7 +46,7 @@ Switch default or independent routes, including same-country automatic mode, fro
 ## Quick start
 
 1. Have **Clash Verge / Mihomo** installed and running on Windows x64.
-2. Once the first stable release is published, download the installer and `SHA256SUMS.txt` from [Releases](https://github.com/TxHuix0v0x/FoxFerry/releases), verify the checksum, and install. The first public release is pending; packages are currently unsigned. For a portable build, keep the entire `win-unpacked` folder together.
+2. Download the installer from [Releases](https://github.com/TxHuix0v0x/FoxFerry/releases) and install it. Packages are currently unsigned. For a portable build, keep the entire `win-unpacked` folder together.
 3. Open the initial setup page, discover your Verge configuration, and import existing subscriptions. Set the default route and add application or website entries.
 4. Generate the assistant-owned local configuration and activate it in Verge in rule mode. **Keep your original subscriptions; do not overwrite them.** Return to FoxFerry to confirm attachment.
 5. Check actual connection ownership in Overview, then use the tray for quick route changes. Adjust follow behavior and background preferences in Settings; find repository, licenses, and manual update checks in About.
