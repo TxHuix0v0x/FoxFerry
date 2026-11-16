@@ -5,7 +5,7 @@ const fs = require('node:fs/promises'), path = require('node:path'), os = requir
 const { Service } = require('../src/service.cjs');
 const { createDemo } = require('../src/simulation.cjs');
 const { selectedAssistant } = require('../src/discovery.cjs');
-const { startWatcher, watcherPipe } = require('../src/watcher.cjs');
+const { startWatcher, watcherPipe, POLL_MS } = require('../src/watcher.cjs');
 const M = require('../src/model.cjs');
 const flush = () => new Promise(resolve => setImmediate(resolve));
 test('sampling uses live preferences, never overlaps, stops on pause/close and resumes once', async t => {
@@ -38,10 +38,10 @@ test('watcher shares snapshots, does not relaunch manual exit in same host sessi
   t.mock.timers.enable({apis:['setTimeout']});let hosts=[{key:'pid:created-1'}],follow=true,launches=0;
   const dir=path.join(os.tmpdir(),`watcher-fixture-${process.pid}`),watcher=startWatcher({dir,snapshot:async()=>({at:Date.now(),hosts,kernel:'fixture'}),readFollow:async()=>follow,launch:()=>launches++});let socket;
   try{
-    await new Promise(r=>watcher.server.once('listening',r));const connected=new Promise(r=>watcher.server.once('connection',r));socket=net.connect(watcherPipe(dir));const peer=await connected;const received=new Promise(r=>socket.once('data',r));t.mock.timers.tick(2500);await received;assert.equal(launches,0);
-    const disconnected=new Promise(r=>peer.once('close',r));socket.destroy();await disconnected;t.mock.timers.tick(2500);await flush();assert.equal(launches,0);
-    hosts=[{key:'pid:created-2'}];t.mock.timers.tick(2500);await flush();assert.equal(launches,1);
-    hosts=[];t.mock.timers.tick(2500);await flush();t.mock.timers.tick(2500);await flush();hosts=[{key:'pid:created-3'}];t.mock.timers.tick(2500);await flush();assert.equal(launches,2);
-    follow=false;t.mock.timers.tick(2500);await flush();assert.equal(watcher.server.listening,false);
+    await new Promise(r=>watcher.server.once('listening',r));const connected=new Promise(r=>watcher.server.once('connection',r));socket=net.connect(watcherPipe(dir));const peer=await connected;const received=new Promise(r=>socket.once('data',r));t.mock.timers.tick(POLL_MS);await received;assert.equal(launches,0);
+    const disconnected=new Promise(r=>peer.once('close',r));socket.destroy();await disconnected;t.mock.timers.tick(POLL_MS);await flush();assert.equal(launches,0);
+    hosts=[{key:'pid:created-2'}];t.mock.timers.tick(POLL_MS);await flush();assert.equal(launches,1);
+    hosts=[];t.mock.timers.tick(POLL_MS);await flush();t.mock.timers.tick(POLL_MS);await flush();hosts=[{key:'pid:created-3'}];t.mock.timers.tick(POLL_MS);await flush();assert.equal(launches,2);
+    follow=false;t.mock.timers.tick(POLL_MS);await flush();assert.equal(watcher.server.listening,false);
   }finally{socket?.destroy();watcher.stop();}
 });

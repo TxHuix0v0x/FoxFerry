@@ -5,6 +5,10 @@ const path = require('node:path');
 const { spawn } = require('node:child_process');
 const { createHash } = require('node:crypto');
 const { HostGate } = require('./host.cjs');
+// ponytail: 5s poll. Each poll starts a PowerShell process and runs a WMI query (~0.4 s wall), so a
+// shorter interval buys faster Verge start/stop following at a proportional background cost. Lower it
+// only with a cheaper presence check; raising it past ~15 s makes start following visibly late.
+const POLL_MS = 5000;
 function watcherPipe(dir) { return `\\\\.\\pipe\\foxferry-${createHash('sha256').update(path.resolve(dir).toLowerCase()).digest('hex').slice(0,24)}`; }
 function startWatcher({ dir, executable, args, snapshot, readFollow, launch }) {
   const clients = new Set(), gate = new HostGate(); let timer, closed = false, latest;
@@ -21,11 +25,11 @@ function startWatcher({ dir, executable, args, snapshot, readFollow, launch }) {
       for (const socket of clients) { if (socket.writableLength > 65536) socket.destroy(); else socket.write(JSON.stringify(value) + '\n'); }
       if (result.launch && !clients.size) launch();
     } catch { /* Unknown state never authorizes a launch or exit. */ }
-    if (!closed) timer = setTimeout(poll,2500);
+    if (!closed) timer = setTimeout(poll,POLL_MS);
   }
   function stop() { closed = true; clearTimeout(timer); for (const socket of clients) socket.destroy(); server.close(); }
   server.on('error', error => { if (error.code === 'EADDRINUSE') { closed = true; return; } throw error; });
-  server.listen(watcherPipe(dir), () => { timer = setTimeout(poll,2500); });
+  server.listen(watcherPipe(dir), () => { timer = setTimeout(poll,POLL_MS); });
   return { stop, server, gate };
 }
 if (require.main === module) {
@@ -48,4 +52,4 @@ async function waitForWatcher(dir) {
 async function stopWatcher(dir) {
   await new Promise((resolve,reject)=>{const socket=net.connect(watcherPipe(dir));const timer=setTimeout(()=>{socket.destroy();reject(Error('后台联动助手未能停止'));},3000);socket.once('connect',()=>socket.write('stop\n'));socket.once('close',()=>{clearTimeout(timer);resolve();});socket.once('error',error=>{clearTimeout(timer);if(!['ENOENT','ECONNREFUSED'].includes(error.code))reject(error);});});
 }
-module.exports = { startWatcher, watcherPipe, waitForWatcher, stopWatcher };
+module.exports = { startWatcher, watcherPipe, waitForWatcher, stopWatcher, POLL_MS };
