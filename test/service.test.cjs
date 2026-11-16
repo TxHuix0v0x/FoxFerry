@@ -57,9 +57,10 @@ test('auto lowest latency clears the country scope and probe results reach the v
     await service.store.save(service.state);
     await service.command('auto', { sceneId: scene.id, anyCountry: true });
     const next = service.state.scenes.find(s => s.id === scene.id);
-    assert.equal(next.mode, 'auto'); assert.equal(next.countryLock, null); assert.deepEqual(next.countries, []); assert.deepEqual(next.candidates, []);
+    assert.equal(next.mode, 'auto'); assert.equal(next.anyCountry, true); assert.deepEqual(next.countries, ['JP']); assert.deepEqual(next.candidates, [scene.selected]);
     await service.command('auto', { sceneId: scene.id, country: 'US' });
-    assert.equal(service.state.scenes.find(s => s.id === scene.id).countryLock, 'US');
+    const scoped = service.state.scenes.find(s => s.id === scene.id);
+    assert.equal(scoped.countryLock, 'US'); assert.equal('anyCountry' in scoped, false);
     const ids = service.state.subscriptions[0].nodes.map(n => n.id);
     const probed = await service.command('probeDelays', { ids });
     assert.ok(Object.values(probed.result).every(v => typeof v === 'number' && v > 0));

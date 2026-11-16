@@ -109,7 +109,7 @@ class Scheduler {
       if (scene.mode !== 'auto' || scene.temporary) continue;
       const pool = candidates(state, scene).filter(n => Number.isFinite(this.delays[n.id]));
       const best = pool.sort((a, b) => this.delays[a.id] - this.delays[b.id])[0];
-      if (!best) { this.alert(scene, 'unavailable', '当前订阅及锁定国家没有可用候选；保持原路线，可手动选择其他订阅或国家'); continue; }
+      if (!best) { this.alert(scene, 'unavailable', scene.anyCountry ? '当前订阅没有可用候选（候选节点或允许国家筛选后为空）；保持原路线，可手动选择其他订阅或节点' : '当前订阅及锁定国家没有可用候选；保持原路线，可手动选择其他订阅或国家'); continue; }
       const currentDelay = this.delays[scene.selected] ?? Infinity;
       const mem = this.runtime(scene.id);
       if (best.id !== scene.selected && (currentDelay === Infinity || ((mem.switched === null || now - mem.switched >= state.preferences.dwell) && currentDelay - this.delays[best.id] > state.preferences.tolerance))) await this.switch(scene.id, best.id, { automatic: true });
@@ -126,10 +126,10 @@ class Scheduler {
     const previous = scene.selected ? nodeName(scene.selected) : 'REJECT';
     await this.core.select(group(scene.id), nodeName(nodeId));
     try {
-      if (temporary && !scene.temporary) scene.temporary = { selected: scene.selected, subscriptionId: scene.subscriptionId, countryLock: scene.countryLock, mode: scene.mode, candidates: [...scene.candidates], countries: [...scene.countries] };
+      if (temporary && !scene.temporary) scene.temporary = { selected: scene.selected, subscriptionId: scene.subscriptionId, countryLock: scene.countryLock, mode: scene.mode, candidates: [...scene.candidates], countries: [...scene.countries], anyCountry: scene.anyCountry === true };
       if (!temporary && !automatic) delete scene.temporary;
       scene.selected = nodeId; scene.subscriptionId = node.subscriptionId;
-      if (!automatic) { scene.mode = 'manual'; scene.countryLock = country(node); if (before.subscriptionId !== node.subscriptionId) scene.candidates = []; }
+      if (!automatic) { scene.mode = 'manual'; scene.countryLock = country(node); delete scene.anyCountry; if (before.subscriptionId !== node.subscriptionId) scene.candidates = []; }
       await this.persist(state);
     } catch (error) {
       Object.assign(scene, before);

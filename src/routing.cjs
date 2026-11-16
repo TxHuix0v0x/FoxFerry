@@ -1,7 +1,7 @@
 'use strict';
 const { randomUUID } = require('node:crypto');
 const M = require('./model.cjs');
-const fields = ['subscriptionId', 'selected', 'countryLock', 'mode', 'candidates', 'countries', 'threshold'];
+const fields = ['subscriptionId', 'selected', 'countryLock', 'mode', 'candidates', 'countries', 'threshold', 'anyCountry'];
 function entry(state, id) { const rule = state.rules.find(r => r.id === id); if (!rule) throw Error('分流不存在'); return rule; }
 function independent(state, rule) { return rule.sceneId !== state.defaultSceneId && state.rules.filter(r => r.sceneId === rule.sceneId).length === 1; }
 function ownScene(state, rule) {

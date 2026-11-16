@@ -302,7 +302,7 @@ class Service {
           case 'pause': this.paused = true; this.status = '用户已暂停调度'; this.scheduler?.invalidate(); break;
           case 'switch': if (this.paused) throw Error('请先接入调度'); await this.checkKernel(true); result = await this.scheduler.switch(value.sceneId, value.nodeId, value); break;
           case 'restore': if (this.paused) throw Error('请先接入调度'); await this.scheduler.restore(value.sceneId); break;
-          case 'auto': { if (this.paused) throw Error('请先接入调度'); await this.guard(); const next = structuredClone(this.state); const s = next.scenes.find(s => s.id === value.sceneId); if (!s || s.temporary) throw Error('请先结束临时加速'); s.mode = 'auto'; if (value.anyCountry) { s.countryLock = null; s.countries = []; s.candidates = []; } else if (value.country) s.countryLock = value.country; await this.store.save(next); this.scheduler.invalidate(); this.scheduler.lastDelay = null; break; }
+          case 'auto': { if (this.paused) throw Error('请先接入调度'); await this.guard(); const next = structuredClone(this.state); const s = next.scenes.find(s => s.id === value.sceneId); if (!s || s.temporary) throw Error('请先结束临时加速'); s.mode = 'auto'; if (value.anyCountry) s.anyCountry = true; else { delete s.anyCountry; if (value.country) s.countryLock = value.country; else if (!s.countryLock) s.countryLock = M.country(M.nodes(next).find(n => n.id === s.selected)); } await this.store.save(next); this.scheduler.invalidate(); this.scheduler.lastDelay = null; break; }
           case 'keep': this.scheduler.keep(value.id); break;
           case 'probe': result = await this.probe(value.nodeId); break;
           default: throw Error('不支持的操作');
@@ -322,7 +322,7 @@ class Service {
       if (operation === 'restore') return this.scheduler.restore(rule.sceneId);
       const next = structuredClone(this.state), scene = next.scenes.find(s => s.id === rule.sceneId);
       if (scene.temporary) throw Error('请先恢复临时加速');
-      scene.mode = 'auto'; if (value.anyCountry) { scene.countryLock = null; scene.countries = []; scene.candidates = []; } else if (value.country) scene.countryLock = value.country;
+      scene.mode = 'auto'; if (value.anyCountry) scene.anyCountry = true; else { delete scene.anyCountry; if (value.country) scene.countryLock = value.country; }
       await this.store.save(next); this.scheduler.invalidate(); this.scheduler.lastDelay = null; return;
     }
     if (operation === 'restore') throw Error('本条分流尚未设置独立临时线路');
@@ -336,7 +336,7 @@ class Service {
       if (scene.subscriptionId !== node.subscriptionId) scene.candidates = [];
       Object.assign(scene, { selected: node.id, subscriptionId: node.subscriptionId, countryLock: M.country(node), mode: 'manual' });
       if (value.reconnect) connections = (await this.core.connections()).connections || [];
-    } else { scene.mode = 'auto'; if (value.anyCountry) { scene.countryLock = null; scene.countries = []; scene.candidates = []; } else if (value.country) scene.countryLock = value.country; }
+    } else { scene.mode = 'auto'; if (value.anyCountry) scene.anyCountry = true; else { delete scene.anyCountry; if (value.country) scene.countryLock = value.country; } }
     await this.commit(next);
     const failed = [];
     if (value.reconnect) {

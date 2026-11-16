@@ -39,7 +39,7 @@ function parseNodes(text, subscriptionId) {
 function nodes(state) { return state.subscriptions.flatMap(s => s.nodes || []); }
 function country(node) { return node?.detectedCountry || node?.nameCountry || null; }
 function candidates(state, scene, scoped = true) {
-  return nodes(state).filter(n => n.subscriptionId === scene.subscriptionId && (!scene.candidates?.length || scene.candidates.includes(n.id)) && (!scene.countries?.length || scene.countries.includes(country(n))) && (!scoped || (!!scene.countryLock && country(n) === scene.countryLock)));
+  return nodes(state).filter(n => n.subscriptionId === scene.subscriptionId && (!scene.candidates?.length || scene.candidates.includes(n.id)) && (!scene.countries?.length || scene.countries.includes(country(n))) && (!scoped || scene.anyCountry === true || (!!scene.countryLock && country(n) === scene.countryLock)));
 }
 function safeText(value, title, max = 160) {
   if (typeof value !== 'string' || !value.trim() || value.length > max || /[\r\n\0,()]/.test(value)) throw Error(`${title}为空或含不支持字符`);
@@ -55,6 +55,7 @@ function validateState(s, version = 2) {
     if (!s.subscriptions.some(x => x.id === scene.subscriptionId)) throw Error('线路引用的订阅不存在');
     if (!['auto', 'manual'].includes(scene.mode) || !Array.isArray(scene.candidates) || !Array.isArray(scene.countries) || scene.countries.some(c => !/^[A-Z]{2}$/.test(c))) throw Error('线路选择范围无效');
     if (scene.countryLock !== null && !/^[A-Z]{2}$/.test(scene.countryLock)) throw Error('锁定国家无效');
+    if (scene.anyCountry !== undefined && typeof scene.anyCountry !== 'boolean') throw Error('自动选线范围无效');
     if (scene.threshold !== null && (!Number.isFinite(scene.threshold) || scene.threshold <= 0)) throw Error('速度提醒线必须大于零或留空');
     if (scene.managedByRuleId && (!s.rules.some(r => r.id === scene.managedByRuleId && r.sceneId === scene.id) || s.rules.filter(r => r.sceneId === scene.id).length !== 1 || scene.id === s.defaultSceneId)) throw Error('独立线路归属无效');
   }

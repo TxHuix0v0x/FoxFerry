@@ -25,6 +25,15 @@ test('unknown countries never auto switch; missing range alerts do not cross sub
   await f.scheduler.checkDelays(); assert.equal(f.writes.length, 0); assert.equal(f.scheduler.alerts[0].kind, 'unavailable');
   await assert.rejects(() => f.scheduler.switch(scene.id, f.state.subscriptions[1].nodes[0].id, { automatic: true }));
 });
+test('any-country auto probes the whole subscription instead of alerting on a null lock', async () => {
+  const f = fixture(); const scene = f.state.scenes[0]; scene.countryLock = null; scene.anyCountry = true;
+  await f.scheduler.checkDelays();
+  assert.equal(f.scheduler.alerts.length, 0); assert.equal(f.writes.length, 1);
+  assert.equal(scene.selected, f.state.subscriptions[0].nodes[1].id);
+  assert.equal('anyCountry' in scene, true);
+  await f.scheduler.switch(scene.id, f.state.subscriptions[0].nodes[2].id);
+  assert.equal('anyCountry' in scene, false); assert.equal(scene.mode, 'manual');
+});
 test('targeted reconnect closes only selected scene including TCP/UDP; restore keeps old connections', async () => {
   const f = fixture(); const scene = f.state.scenes[1]; const original = scene.selected;
   f.connections([{ id: 'tcp-idm', chains: [group(scene.id)], metadata: { network: 'tcp' } }, { id: 'udp-idm', chains: [group(scene.id)], metadata: { network: 'udp' } }, { id: 'qb', chains: [group('qb')] }]);
