@@ -34,5 +34,5 @@ class Store {
     return job;
   }
 }
-function redact(message) { return String(message).replace(/https?:\/\/[^\s"'<>]+/gi, '[网址已隐藏]').replace(/(password|secret|token|authorization|uuid)\s*[=:]\s*[^\s,}]+/gi, '$1=[已隐藏]'); }
+function redact(message) { return String(message).replace(/https?:\/\/[^\s"'<>]+/gi, '[网址已隐藏]').replace(/(password|secret|token|authorization|uuid)\s*[=:]\s*[^\s,}]+/gi, '$1=[已隐藏]').replace(/Command failed:[^\r\n]*/gi, '系统命令执行失败'); }
 module.exports = { Store, atomicWrite, redact };

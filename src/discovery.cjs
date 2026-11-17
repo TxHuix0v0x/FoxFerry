@@ -13,7 +13,9 @@ async function processSnapshot(force = false) {
     let rows = [];
     if (process.platform === 'win32') {
       const script = "@(Get-CimInstance Win32_Process -Filter \"Name = 'clash-verge.exe' OR Name = 'verge-mihomo.exe' OR Name = 'verge-mihomo-alpha.exe' OR Name = 'mihomo.exe'\" | Sort-Object ProcessId | Select-Object Name,ProcessId,ExecutablePath,CreationDate) | ConvertTo-Json -Compress";
-      const { stdout } = await exec('powershell.exe', ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', script], { windowsHide: true, timeout: 8000 });
+      let stdout;
+      try { ({ stdout } = await exec('powershell.exe', ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', script], { windowsHide: true, timeout: 8000 })); }
+      catch (error) { throw Object.assign(Error(error.killed ? '读取本机进程列表超时，请稍后重试' : '读取本机进程列表失败，请确认 PowerShell 可用后重试'), { code: 'EPROCESS' }); }
       const parsed = JSON.parse(stdout.trim() || '[]'); rows = Array.isArray(parsed) ? parsed : [parsed];
     }
     const hosts = rows.filter(p => p.Name === 'clash-verge.exe').map(p => ({ pid:p.ProcessId, exe:p.ExecutablePath, key:`${p.ProcessId}:${p.CreationDate}` }));
@@ -27,9 +29,11 @@ async function kernelIdentity(force = false) { return (await processSnapshot(for
 async function installationPaths() {
   if (process.platform !== 'win32') return [];
   const script = "@(Get-ItemProperty 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*','HKCU:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\*' -ErrorAction SilentlyContinue | Where-Object DisplayName -eq 'Clash Verge' | Select-Object -ExpandProperty InstallLocation) | ConvertTo-Json -Compress";
-  const { stdout } = await exec('powershell.exe', ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', script], { windowsHide: true, timeout: 8000 });
-  const result = JSON.parse(stdout.trim() || '[]');
-  return (Array.isArray(result) ? result : [result]).filter(x => typeof x === 'string').map(x => x.replace(/^"|"$/g, ''));
+  try {
+    const { stdout } = await exec('powershell.exe', ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', script], { windowsHide: true, timeout: 8000 });
+    const result = JSON.parse(stdout.trim() || '[]');
+    return (Array.isArray(result) ? result : [result]).filter(x => typeof x === 'string').map(x => x.replace(/^"|"$/g, ''));
+  } catch { return []; }
 }
 async function discover(saved = {}, env = process.env) {
   const processes = await inventory();

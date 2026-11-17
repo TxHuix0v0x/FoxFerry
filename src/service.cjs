@@ -251,7 +251,15 @@ class Service {
     if (!this.delayJob && (this.scheduler.lastDelay === null || now - this.scheduler.lastDelay >= this.state.preferences.delayInterval)) {
       this.delayJob = this.scheduler.checkDelays().catch(e => this.fail(e)).finally(() => { this.delayJob = null; });
     }
-    if (!this.demo && now - this.lastObserve >= 30000) { this.lastObserve = now; await this.scan(); const before = JSON.stringify(this.state.subscriptions); const draft = structuredClone(this.state); const { imported } = await vergeSubscriptions(this.discovery.dir, this.state.owner); for (const sub of draft.subscriptions.filter(s => s.kind === 'verge')) { const fresh = imported.find(s => s.id === sub.id); if (!fresh) sub.nodes = []; else { sub.nodes = fresh.nodes; sub.metadata = fresh.metadata; } } if (JSON.stringify(draft.subscriptions) !== before) await this.commit(draft); }
+    if (!this.demo && now - this.lastObserve >= 30000) {
+      this.lastObserve = now;
+      try {
+        await this.scan(); const before = JSON.stringify(this.state.subscriptions); const draft = structuredClone(this.state); const { imported } = await vergeSubscriptions(this.discovery.dir, this.state.owner); for (const sub of draft.subscriptions.filter(s => s.kind === 'verge')) { const fresh = imported.find(s => s.id === sub.id); if (!fresh) sub.nodes = []; else { sub.nodes = fresh.nodes; sub.metadata = fresh.metadata; } } if (JSON.stringify(draft.subscriptions) !== before) await this.commit(draft);
+      } catch (error) {
+        // A transient process/PowerShell failure in the observation step must not pause routing.
+        this.errors = [...this.errors.slice(-9), { at: now, message: `进程与配置发现失败，保持上次结果：${redact(error.message)}` }];
+      }
+    }
     if (!this.demo && now - this.lastRefresh >= 60000) { this.lastRefresh = now; for (const sub of this.state.subscriptions.filter(s => s.kind !== 'verge' && now - s.updatedAt >= this.state.preferences.updateInterval)) { try { const next = structuredClone(this.state); next.subscriptions[next.subscriptions.findIndex(s => s.id === sub.id)] = await refresh(sub); await this.commit(next); } catch { this.errors = [...this.errors.slice(-9), { at: now, message: `订阅 ${sub.name} 更新失败，保留缓存节点` }]; } } }
   }
   view({ history = true } = {}) {
