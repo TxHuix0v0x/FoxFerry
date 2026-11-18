@@ -52,7 +52,7 @@ class TrafficHistory {
       for (let hour = 0; hour < 24; hour++) total += this.hours.get(dayStart + hour)?.total || 0;
       rows.push({ key: dayStart, value: total });
     }
-    return { range, unit: 'day', total: rows.reduce((sum, row) => sum + row.value, 0), rows: rows.map(row => ({ label: label(row.key, 'day'), bytes: row.value })) };
+    return { range, unit: 'day', total: rows.reduce((sum, row) => sum + row.value, 0), rows: rows.map(row => { const date = new Date(row.key * HOUR); return { label: label(row.key, 'day'), date: `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`, bytes: row.value }; }) };
   }
 }
 module.exports = { TrafficHistory, HOUR, KEEP_HOURS };

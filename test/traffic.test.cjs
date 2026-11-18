@@ -22,6 +22,7 @@ test('traffic history aggregates hours into days, prunes older than 30 days and 
     assert.equal(today.unit, 'hour'); assert.equal(today.total, 1750); assert.equal(today.rows.at(-1).label, '15:00');
     const days = reloaded.summary('d7', now);
     assert.equal(days.unit, 'day'); assert.equal(days.rows.length, 7); assert.equal(days.rows.at(-1).bytes, 1750); assert.equal(days.rows[0].bytes, 0);
+    assert.equal(days.rows.at(-1).date, '2026-05-20');
     const subs = reloaded.hours.get(Math.floor(now / hour));
     assert.deepEqual(subs.subs, { main: 1000, download: 500 });
     reloaded.add(now - 31 * 24 * hour, 'main', 999);

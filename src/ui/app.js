@@ -104,25 +104,55 @@ async function retryAttach() {
   finally { busy = false; }
 }
 const trafficRanges = [['today', '当天'], ['day24', '近 24 小时'], ['d7', '近 7 天'], ['d14', '近 14 天'], ['d30', '近 30 天'], ['all', '全部']];
+function trafficBars(data) {
+  const wrap = document.createElement('div'); wrap.className = 'traffic-plot';
+  const max = Math.max(1, ...data.rows.map(row => row.bytes));
+  const axis = document.createElement('div'); axis.className = 'traffic-yaxis';
+  const top = document.createElement('span'); top.textContent = format(max);
+  const bottom = document.createElement('span'); bottom.textContent = '0';
+  axis.append(top, bottom);
+  const bars = document.createElement('div'); bars.className = 'traffic-bars';
+  const sparse = data.rows.length > 14;
+  data.rows.forEach((row, index) => {
+    const column = document.createElement('div'); column.className = 'traffic-col'; column.title = `${row.label} · ${format(row.bytes)}`;
+    const track = document.createElement('span'); track.className = 'traffic-track';
+    const fill = document.createElement('i'); fill.className = 'traffic-fill'; fill.style.height = `${(row.bytes / max * 100).toFixed(1)}%`;
+    track.append(fill);
+    const tick = document.createElement('span'); tick.className = 'traffic-tick'; tick.textContent = sparse && index % 3 ? '' : row.label;
+    column.append(track, tick); bars.append(column);
+  });
+  wrap.append(axis, bars); return wrap;
+}
+function trafficHeat(data) {
+  const box = document.createElement('div'); box.className = 'traffic-heat';
+  const rows = data.rows, max = Math.max(1, ...rows.map(row => row.bytes));
+  const first = new Date(`${rows[0]?.date || ''}T00:00:00`);
+  const offset = Number.isFinite(first.getTime()) ? (first.getDay() + 6) % 7 : 0;
+  const days = document.createElement('div'); days.className = 'traffic-heat-days';
+  for (const name of ['周一', '周二', '周三', '周四', '周五', '周六', '周日']) { const span = document.createElement('span'); span.textContent = name; days.append(span); }
+  const grid = document.createElement('div'); grid.className = 'traffic-heat-grid';
+  rows.forEach((row, index) => {
+    const level = row.bytes ? Math.max(1, Math.ceil(row.bytes / max * 4)) : 0;
+    const cell = document.createElement('i'); cell.className = `traffic-cell l${level}`;
+    const position = offset + index;
+    cell.style.gridColumn = String(Math.floor(position / 7) + 1); cell.style.gridRow = String((position % 7) + 1);
+    cell.title = `${row.date || row.label} · ${format(row.bytes)}`;
+    grid.append(cell);
+  });
+  const legend = document.createElement('div'); legend.className = 'traffic-heat-legend';
+  legend.innerHTML = '少' + [0, 1, 2, 3, 4].map(level => `<i class="traffic-cell l${level}"></i>`).join('') + '多';
+  box.append(days, grid, legend); return box;
+}
 function paintTraffic() {
   if (!$('traffic-chart')) return;
   const data = ui.traffic.data;
   document.querySelectorAll('[data-action="traffic-range"]').forEach(el => el.classList.toggle('active', el.dataset.range === ui.traffic.range));
   if (!data) { $('traffic-chart').textContent = ui.traffic.requested ? '正在读取流量记录…' : ''; return; }
-  const chart = $('traffic-chart'), max = Math.max(1, ...data.rows.map(row => row.bytes));
-  // CSP 禁止内联 style 属性，宽度只能通过 CSSOM 设置。
-  chart.textContent = '';
+  const chart = $('traffic-chart'); chart.textContent = '';
   if (!data.rows.length) { const empty = document.createElement('p'); empty.className = 'muted'; empty.textContent = '暂无记录'; chart.append(empty); }
-  for (const row of data.rows) {
-    const line = document.createElement('div'); line.className = 'traffic-row'; line.title = `${row.label} · ${format(row.bytes)}`;
-    const label = document.createElement('span'); label.className = 'traffic-label'; label.textContent = row.label;
-    const bar = document.createElement('span'); bar.className = 'traffic-bar';
-    const fill = document.createElement('i'); fill.style.width = `${(row.bytes / max * 100).toFixed(1)}%`;
-    bar.append(fill);
-    const value = document.createElement('span'); value.className = 'traffic-value'; value.textContent = format(row.bytes);
-    line.append(label, bar, value); chart.append(line);
-  }
-  $('traffic-total').textContent = `合计 ${format(data.total)} · ${data.unit === 'hour' ? '按小时' : '按天'} · 最多保留 30 天`;
+  else chart.append(data.range === 'all' ? trafficHeat(data) : trafficBars(data));
+  const first = data.rows[0]?.date || data.rows[0]?.label || '';
+  $('traffic-total').textContent = data.range === 'all' && first ? `${first} – 今天 · 合计 ${format(data.total)} · 最多保留 30 天` : `合计 ${format(data.total)} · ${data.unit === 'hour' ? '按小时' : '按天'} · 最多保留 30 天`;
 }
 async function loadTraffic(range) {
   ui.traffic.range = range; ui.traffic.requested = true;
@@ -184,8 +214,8 @@ function rules() {
 const switchReasons = { 'auto-country': '同国自动', 'auto-any': '最低延迟自动', manual: '手动', temporary: '临时加速', restore: '恢复路线' };
 function switchLog(subId) {
   const rows = (state.switches || []).filter(x => x.subscriptionId === subId || x.fromSubscriptionId === subId).slice(-20).reverse();
-  if (!rows.length) return '';
-  return `<details class="switch-log" ${ui.openSwitches === subId ? 'open' : ''} data-switch="${subId}"><summary>节点切换记录（${rows.length}）</summary><table class="nodes"><thead><tr><th>时间</th><th>线路</th><th>节点变化</th><th>原因</th></tr></thead><tbody>${rows.map(x => `<tr><td>${new Date(x.at).toLocaleString()}</td><td>${esc(x.sceneName || '')}</td><td>${esc(x.from || '—')} → ${esc(x.to || '—')}</td><td>${esc(switchReasons[x.reason] || x.reason || '')}</td></tr>`).join('')}</tbody></table></details>`;
+  const body = rows.length ? `<table class="nodes"><thead><tr><th>时间</th><th>线路</th><th>节点变化</th><th>原因</th></tr></thead><tbody>${rows.map(x => `<tr><td>${new Date(x.at).toLocaleString()}</td><td>${esc(x.sceneName || '')}</td><td>${esc(x.from || '—')} → ${esc(x.to || '—')}</td><td>${esc(switchReasons[x.reason] || x.reason || '')}</td></tr>`).join('')}</tbody></table>` : '<p class="muted">尚未记录到切换：FoxFerry 自动或手动换线后会显示在这里。</p>';
+  return `<details class="switch-log" ${ui.openSwitches === subId ? 'open' : ''} data-switch="${subId}"><summary>节点切换记录（${rows.length}）</summary>${body}</details>`;
 }
 function subscriptions() {  return `<div class="section-head"><h2>统一管理，独立更新</h2><div class="actions">${button('import', '读取 Verge 订阅')}${button('add-sub', '＋ 添加订阅', '', 'primary')}</div></div><p class="muted">Verge 订阅由 Verge 更新；助手添加的订阅默认每日更新。仅支持含 proxies 的 Mihomo YAML。</p>${state.subscriptions.map(s => `<article class="panel subscription"><div class="section-head"><div><h3>${esc(s.name)}</h3><p class="muted">${s.kind === 'verge' ? 'Verge 引用' : s.kind === 'url' ? 'HTTPS 订阅' : '本地文件'} · ${s.nodes.length} 个节点 · 更新于 ${new Date(s.updatedAt).toLocaleString()}</p></div><div class="actions">${button('probe-delays', '查询节点延迟', `data-id="${s.id}"`)}${button('refresh', '更新', `data-id="${s.id}"`)}${button('remove-sub', '移除', `data-id="${s.id}"`, 'danger')}</div></div>${s.error ? `<p class="notice">${esc(s.error)}</p>` : ''}<small>本次观测 ${format(state.subscriptionBytes[s.id] || 0)}</small><details ${ui.openSub === s.id ? 'open' : ''} data-sub="${s.id}"><summary>查看节点与国家来源</summary><table class="nodes"><thead><tr><th>节点</th><th>国家</th><th>来源</th><th>延迟</th><th>检测</th></tr></thead><tbody>${s.nodes.map(n => `<tr><td>${esc(n.name)}</td><td>${esc(n.country || '未知')}</td><td>${esc(n.countrySource)}</td><td>${delayText(n)}</td><td>${button('probe', '检测实际出口', `data-id="${n.id}"`)}</td></tr>`).join('')}</tbody></table><p class="notice">「查询节点延迟」向该订阅每个节点各发一次小请求，延迟高低不代表带宽；「检测实际出口」使用独立测试内核向 Cloudflare 发送少量流量，不改业务组选择；名称标注并非已验证地理位置。</p></details>${switchLog(s.id)}</article>`).join('') || '<div class="panel empty">尚未添加订阅。可先读取 Verge 已导入的订阅。</div>'}`;
 }
