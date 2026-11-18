@@ -26,13 +26,13 @@ jobs:
         # once a fixed version is published.
       - name: Download isolated test core
         shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          $release = Invoke-RestMethod https://api.github.com/repos/MetaCubeX/mihomo/releases/tags/v1.19.33
-          $asset = $release.assets | Where-Object name -eq 'mihomo-windows-amd64-v1-v1.19.33.zip'
-          if (!$asset) { throw 'Pinned Mihomo asset not found; review release asset names.' }
+          # Authenticated download: anonymous API calls from shared runner IPs are rate limited.
           New-Item -ItemType Directory -Force .local/ci-core | Out-Null
-          Invoke-WebRequest $asset.browser_download_url -OutFile .local/ci-core/core.zip
-          Expand-Archive .local/ci-core/core.zip .local/ci-core/bin
+          gh release download v1.19.33 --repo MetaCubeX/mihomo --pattern 'mihomo-windows-amd64-v1-v1.19.33.zip' --dir .local/ci-core --clobber
+          Expand-Archive .local/ci-core/mihomo-windows-amd64-v1-v1.19.33.zip .local/ci-core/bin -Force
           $binary = Get-ChildItem .local/ci-core/bin -Filter '*.exe' | Select-Object -First 1
           if (!$binary) { throw 'Core executable missing.' }
           "MIHOMO_BINARY=$($binary.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
