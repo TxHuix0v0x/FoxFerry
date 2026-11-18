@@ -91,7 +91,24 @@ class Scheduler {
       await Promise.all(list.slice(index, index + 20).map(async id => { try { const result = await this.core.delay(nodeName(id), undefined, 2500); this.delays[id] = Number.isFinite(result.delay) && result.delay > 0 ? result.delay : Infinity; } catch { this.delays[id] = Infinity; } }));
     }
     this.delayRevision++;
+    await this.applyAuto(epoch);
     return Object.fromEntries(list.map(id => [id, Number.isFinite(this.delays[id]) ? this.delays[id] : null]));
+  }
+  // Shared by the periodic check and manual probes: a manual query applies the same automatic decision.
+  async applyAuto(epoch = this.epoch) {
+    await this.serialize(async () => {
+      if (this.cancelled || epoch !== this.epoch) return;
+      const state = this.state(), now = this.clock();
+      for (const scene of state.scenes) {
+        if (scene.mode !== 'auto' || scene.temporary) continue;
+        const pool = candidates(state, scene).filter(n => Number.isFinite(this.delays[n.id]));
+        const best = pool.sort((a, b) => this.delays[a.id] - this.delays[b.id])[0];
+        if (!best) { this.alert(scene, 'unavailable', scene.anyCountry ? '当前订阅没有可用候选（候选节点或允许国家筛选后为空）；保持原路线，可手动选择其他订阅或节点' : '当前订阅及锁定国家没有可用候选；保持原路线，可手动选择其他订阅或国家'); continue; }
+        const currentDelay = this.delays[scene.selected] ?? Infinity;
+        const mem = this.runtime(scene.id);
+        if (best.id !== scene.selected && (currentDelay === Infinity || ((mem.switched === null || now - mem.switched >= state.preferences.dwell) && currentDelay - this.delays[best.id] > state.preferences.tolerance))) await this.switch(scene.id, best.id, { automatic: true });
+      }
+    });
   }
   async checkDelays() {
     const state = this.state(); const now = this.clock();
@@ -104,18 +121,7 @@ class Scheduler {
       await Promise.all(pending.slice(index, index + 4).map(async id => { try { const result = await this.core.delay(nodeName(id)); this.delays[id] = Number.isFinite(result.delay) && result.delay > 0 ? result.delay : Infinity; } catch { this.delays[id] = Infinity; } }));
     }
     this.delayRevision++;
-    await this.serialize(async () => {
-    if (this.cancelled || epoch !== this.epoch) return;
-    for (const scene of this.state().scenes) {
-      if (scene.mode !== 'auto' || scene.temporary) continue;
-      const pool = candidates(state, scene).filter(n => Number.isFinite(this.delays[n.id]));
-      const best = pool.sort((a, b) => this.delays[a.id] - this.delays[b.id])[0];
-      if (!best) { this.alert(scene, 'unavailable', scene.anyCountry ? '当前订阅没有可用候选（候选节点或允许国家筛选后为空）；保持原路线，可手动选择其他订阅或节点' : '当前订阅及锁定国家没有可用候选；保持原路线，可手动选择其他订阅或国家'); continue; }
-      const currentDelay = this.delays[scene.selected] ?? Infinity;
-      const mem = this.runtime(scene.id);
-      if (best.id !== scene.selected && (currentDelay === Infinity || ((mem.switched === null || now - mem.switched >= state.preferences.dwell) && currentDelay - this.delays[best.id] > state.preferences.tolerance))) await this.switch(scene.id, best.id, { automatic: true });
-    }
-    });
+    await this.applyAuto(epoch);
   }
   async switch(sceneId, nodeId, { automatic = false, reconnect = false, temporary = false, alertId = null } = {}) {
     const state = this.state(); const scene = state.scenes.find(s => s.id === sceneId); const node = nodes(state).find(n => n.id === nodeId);

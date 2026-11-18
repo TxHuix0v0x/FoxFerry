@@ -88,6 +88,14 @@ test('manual latency probe keeps per-node results, marks failures and ignores un
   await assert.rejects(() => f.scheduler.probe([]), /没有可查询的节点/);
 });
 
+test('a manual latency probe applies the same automatic decision as the periodic check', async () => {
+  const f = fixture(); const scene = f.state.scenes[0]; const [, target] = f.state.subscriptions[0].nodes;
+  f.core.delay = async name => ({ delay: name === nodeName(target.id) ? 5 : 300 });
+  await f.scheduler.probe(f.state.subscriptions[0].nodes.map(n => n.id));
+  assert.equal(scene.selected, target.id);
+  assert.equal(f.log.at(-1).reason, 'auto-country');
+  assert.equal(f.writes.length, 1);
+});
 test('manual selection preserves same-subscription candidate edits and choosing permanent ends acceleration', async () => {
   const f = fixture(); const s = f.state.scenes[0]; s.candidates = [s.selected]; s.countries = ['JP'];
   await f.scheduler.switch(s.id, f.state.subscriptions[0].nodes[1].id); assert.equal(s.candidates.length, 1); assert.deepEqual(s.countries, ['JP']);
