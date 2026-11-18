@@ -25,6 +25,10 @@ test('旧数据补齐背景默认值，且背景校验不影响原有调度参�
   assert.throws(() => validateState(bad), /面板设置无效/);
   bad.preferences.background.opacity = 25; bad.preferences.background.imageId = '../state.json';
   assert.throws(() => validateState(bad), /背景设置无效/);
+  const badStyle = structuredClone(migrated); badStyle.preferences.background.lineDepth = 101;
+  assert.throws(() => validateState(badStyle), /线条与阴影设置无效/);
+  badStyle.preferences.background.lineDepth = 40; badStyle.preferences.background.shadow = -1;
+  assert.throws(() => validateState(badStyle), /线条与阴影设置无效/);
 });
 
 test('演示模式重建模拟数据时保留背景设置', async () => {

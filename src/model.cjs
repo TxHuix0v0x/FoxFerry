@@ -7,7 +7,7 @@ const group = id => `AS_${id}`;
 const marker = owner => `ASSISTANT_${owner.replaceAll('-', '')}`;
 const nodeName = id => `N_${id}`;
 const defaults = { delayInterval: 300000, tolerance: 50, dwell: 300000, sampleInterval: 1000, averageWindow: 5000, sustained: 30000, cooldown: 300000, idleRate: 16384, idleDuration: 120000, updateInterval: 86400000 };
-const backgroundDefaults = { mode: 'color', preset: 'white', imageId: '', imageName: '', opacity: 25, blur: 0, fit: 'cover', panelOpacity: 100, panelBlur: 0 };
+const backgroundDefaults = { mode: 'color', preset: 'white', imageId: '', imageName: '', opacity: 25, blur: 0, fit: 'cover', panelOpacity: 100, panelBlur: 0, lineDepth: 0, shadow: 0 };
 function initialState() {
   return { version: 2, owner: randomUUID(), subscriptions: [], scenes: [], rules: [], preferences: { ...defaults, follow: false, background: { ...backgroundDefaults } }, setup: { ready: false, vergeDir: '', corePath: '' } };
 }
@@ -74,6 +74,7 @@ function validateState(s, version = 2) {
   const bg = s.preferences.background;
   if (bg !== undefined && (!bg || typeof bg !== 'object' || Array.isArray(bg) || !['color','image'].includes(bg.mode) || !['white','red','orange','yellow','green','cyan','blue','purple','sage','cool','warm'].includes(bg.preset) || typeof bg.imageId !== 'string' || !/^(?:[a-f0-9]{64})?$/.test(bg.imageId) || typeof bg.imageName !== 'string' || bg.imageName.length > 255 || /[\r\n\0]/.test(bg.imageName) || !Number.isInteger(bg.opacity) || bg.opacity < 0 || bg.opacity > 100 || !Number.isInteger(bg.blur) || bg.blur < 0 || bg.blur > 50 || !['cover','contain','stretch','center'].includes(bg.fit))) throw Error('背景设置无效');
   if (bg !== undefined && (!Number.isInteger(bg.panelOpacity) || bg.panelOpacity < 0 || bg.panelOpacity > 100 || !Number.isInteger(bg.panelBlur) || bg.panelBlur < 0 || bg.panelBlur > 50)) throw Error('面板设置无效');
+  if (bg !== undefined && (!Number.isInteger(bg.lineDepth) || bg.lineDepth < 0 || bg.lineDepth > 100 || !Number.isInteger(bg.shadow) || bg.shadow < 0 || bg.shadow > 100)) throw Error('线条与阴影设置无效');
   return s;
 }
 function upgradeState(value) {
