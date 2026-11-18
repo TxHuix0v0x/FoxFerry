@@ -76,7 +76,7 @@ class Core {
   connections() { return this.request('GET', '/connections'); }
   rules() { return this.request('GET', '/rules'); }
   select(group, name) { return this.request('PUT', `/proxies/${encodeURIComponent(group)}`, { name }); }
-  delay(name, url = 'https://www.gstatic.com/generate_204') { return this.request('GET', `/proxies/${encodeURIComponent(name)}/delay?timeout=5000&url=${encodeURIComponent(url)}`); }
+  delay(name, url = 'https://www.gstatic.com/generate_204', timeout = 5000) { return this.request('GET', `/proxies/${encodeURIComponent(name)}/delay?timeout=${timeout}&url=${encodeURIComponent(url)}`); }
   close(id) { if (!id || typeof id !== 'string') throw Error('连接 ID 无效'); return this.request('DELETE', `/connections/${encodeURIComponent(id)}`); }
   apply(config) { return this.request('PUT', '/configs?force=false', { payload: stringify(config) }, 20000); }
 }

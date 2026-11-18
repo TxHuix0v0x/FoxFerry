@@ -5,11 +5,23 @@ const { Scheduler } = require('../src/scheduler.cjs');
 const { createDemo } = require('../src/simulation.cjs');
 const { nodeName, group } = require('../src/model.cjs');
 function fixture() {
-  const { state } = createDemo(); let now = 0; const writes = [], closed = []; let conns = [];
+  const { state } = createDemo(); let now = 0; const writes = [], closed = [], log = []; let conns = [];
   const core = { select: async (g, n) => writes.push([g, n]), delay: async name => ({ delay: name === nodeName(state.subscriptions[0].nodes[1].id) ? 10 : 100 }), connections: async () => ({ connections: conns }), close: async id => closed.push(id) };
-  const scheduler = new Scheduler({ state: () => state, core, guard: async () => {}, persist: async () => {}, clock: () => now });
-  return { state, scheduler, core, writes, closed, time: v => { now = v; }, connections: v => { conns = v; } };
+  const scheduler = new Scheduler({ state: () => state, core, guard: async () => {}, persist: async () => {}, clock: () => now, logSwitch: entry => log.push(entry) });
+  return { state, scheduler, core, writes, closed, log, time: v => { now = v; }, connections: v => { conns = v; } };
 }
+test('node switches are recorded with a reason for manual, automatic and temporary routes', async () => {
+  const f = fixture(); const scene = f.state.scenes[0];
+  await f.scheduler.checkDelays();
+  assert.equal(f.log.length, 1); assert.equal(f.log[0].reason, 'auto-country'); assert.ok(f.log[0].to); assert.equal(f.log[0].sceneName, scene.name);
+  await f.scheduler.switch(scene.id, f.state.subscriptions[0].nodes[3].id);
+  assert.equal(f.log.at(-1).reason, 'manual'); assert.equal(f.log.at(-1).to, f.state.subscriptions[0].nodes[3].name);
+  const s = f.state.scenes[1];
+  await f.scheduler.switch(s.id, f.state.subscriptions[2].nodes[0].id, { temporary: true });
+  await f.scheduler.restore(s.id);
+  assert.deepEqual(f.log.slice(-2).map(x => x.reason), ['temporary', 'restore']);
+  assert.equal(f.log.at(-1).from, f.state.subscriptions[2].nodes[0].name);
+});
 test('automatic scheduling stays in subscription + country, respects manual lock, tolerance and dwell', async () => {
   const f = fixture(); const scene = f.state.scenes[0];
   await f.scheduler.checkDelays(); assert.equal(scene.selected, f.state.subscriptions[0].nodes[1].id);

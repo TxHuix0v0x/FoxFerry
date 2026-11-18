@@ -10,6 +10,7 @@ const { addSubscription, refresh } = require('./subscriptions.cjs');
 const { atomicWrite, redact } = require('./store.cjs');
 const { Scheduler } = require('./scheduler.cjs');
 const { ConnectionHistory } = require('./connection-history.cjs');
+const { TrafficHistory } = require('./traffic.cjs');
 const R = require('./routing.cjs');
 const { version: appVersion } = require('../package.json');
 function ruleSignature(config) {
@@ -33,11 +34,13 @@ class Service {
     this.store = store; this.demo = demo; this.notify = notify; this.status = '尚未接入，请完成首次向导'; this.queue = Promise.resolve(); this.paused = true; this.errors = []; this.discovery = null; this.expected = null; this.tickBusy = false;
     this.file = path.join(store.dir, 'assistant-owned.yaml'); this.lastObserve = 0; this.lastRefresh = 0;
     this.connectionHistory = new ConnectionHistory();
+    this.traffic = new TrafficHistory(store.dir); this.switchLog = []; this.lastTrafficFlush = 0;
   }
   get state() { return this.store.state; }
   serial(work) { const job = this.queue.then(work); this.queue = job.catch(() => {}); return job; }
   async init() {
     await this.store.load();
+    await this.traffic.load();
     if (this.state.setup.needsUpgradeConfirmation) this.status = '数据已升级，原有分流已保留；请在首次接入中重新确认';
     this.journal = path.join(this.store.dir, 'transaction.json');
     try {
@@ -77,7 +80,7 @@ class Service {
       this.serial(() => this.tick()).catch(e => this.fail(e)).finally(() => { this.tickBusy = false; this.scheduleSample(); });
     }, this.state.preferences.sampleInterval);
   }
-  makeScheduler() { if (this.scheduler) { this.scheduler.cancelled = true; this.scheduler.invalidate(); } this.scheduler = new Scheduler({ state: () => this.state, core: this.core, guard: () => this.guard(), persist: s => this.persistSelection(s), notify: a => this.notify(a), serialize: work => this.serial(work), history: this.connectionHistory }); }
+  makeScheduler() { if (this.scheduler) { this.scheduler.cancelled = true; this.scheduler.invalidate(); } this.scheduler = new Scheduler({ state: () => this.state, core: this.core, guard: () => this.guard(), persist: s => this.persistSelection(s), notify: a => this.notify(a), serialize: work => this.serial(work), history: this.connectionHistory, traffic: this.traffic, logSwitch: entry => { this.switchLog.push(entry); if (this.switchLog.length > 300) this.switchLog.shift(); } }); }
   async persistSelection(state) {
     if (this.demo) return this.store.save(state);
     const previousState = JSON.parse(await fs.readFile(this.store.file, 'utf8'));
@@ -248,6 +251,7 @@ class Service {
     const now = Date.now();
     await this.guard({ cached: true });
     await this.scheduler.sample();
+    if (now - this.lastTrafficFlush >= 30000) { this.lastTrafficFlush = now; this.traffic.flush(now).catch(() => {}); }
     if (!this.delayJob && (this.scheduler.lastDelay === null || now - this.scheduler.lastDelay >= this.state.preferences.delayInterval)) {
       this.delayJob = this.scheduler.checkDelays().catch(e => this.fail(e)).finally(() => { this.delayJob = null; });
     }
@@ -265,7 +269,7 @@ class Service {
   view({ history = true } = {}) {
     const state = { ...this.state };
     state.subscriptions = state.subscriptions.map(s => ({ id: s.id, name: s.name, kind: s.kind, updatedAt: s.updatedAt, error: s.error, metadata: s.metadata, nodes: s.nodes.map(n => ({ id: n.id, name: n.name, subscriptionId: n.subscriptionId, udp: this.capabilities?.[n.id], country: M.country(n), countrySource: n.detectedCountry ? '出口检测' : n.nameCountry ? '名称标注' : '未知', delay: Number.isFinite(this.scheduler?.delays[n.id]) ? this.scheduler.delays[n.id] : null, delayFailed: this.scheduler?.delays[n.id] === Infinity })) }));
-    return { ...state, appVersion, demo: this.demo, paused: this.paused, status: this.status, errors: this.errors, metrics: this.scheduler?.metrics || {}, subscriptionBytes: this.scheduler?.subscriptionBytes || {}, applicationBytes: this.scheduler?.applicationBytes || {}, ...(history ? { connections: this.connectionHistory.rows } : {}), connectionsUpdatedAt: this.connectionHistory.sampledAt, alerts: this.scheduler?.alerts.filter(a => a.expires > Date.now()) || [], configFile: this.file };
+    return { ...state, appVersion, demo: this.demo, paused: this.paused, status: this.status, errors: this.errors, switches: this.switchLog.slice(-100), metrics: this.scheduler?.metrics || {}, subscriptionBytes: this.scheduler?.subscriptionBytes || {}, applicationBytes: this.scheduler?.applicationBytes || {}, ...(history ? { connections: this.connectionHistory.rows } : {}), connectionsUpdatedAt: this.connectionHistory.sampledAt, alerts: this.scheduler?.alerts.filter(a => a.expires > Date.now()) || [], configFile: this.file };
   }
   summary({ revision, overview = true } = {}) {
     const changed = this.viewState !== this.state || this.viewDelays !== this.scheduler?.delayRevision || this.viewCapabilities !== this.capabilities;
@@ -279,6 +283,7 @@ class Service {
     if (action === 'view') return this.view({ history: false });
     if (action === 'summary') return this.summary(value);
     if (action === 'connections') return this.connectionHistory.page(value);
+    if (action === 'traffic') return { result: this.traffic.summary(value?.range) };
     // Manual latency probes are user-triggered and can take a while; keep them out of the serial queue.
     if (action === 'probeDelays') {
       try {
@@ -365,6 +370,6 @@ class Service {
     for (const s of next.scenes) if (s.selected === nodeId && s.countryLock !== detected) s.mode = 'manual';
     await this.store.save(next); this.scheduler?.invalidate(); return { country: detected };
   }
-  async close() { this.closed = true; clearTimeout(this.timer); if (this.scheduler) this.scheduler.cancelled = true; await this.delayJob; await this.queue; await this.store.queue; this.connectionHistory.clear(); }
+  async close() { this.closed = true; clearTimeout(this.timer); if (this.scheduler) this.scheduler.cancelled = true; await this.delayJob; await this.queue; await this.store.queue; await this.traffic.flush().catch(() => {}); this.connectionHistory.clear(); }
 }
 module.exports = { Service, ruleSignature, signature };

@@ -3,8 +3,8 @@ const { randomUUID } = require('node:crypto');
 const { nodes, candidates, country, group, nodeName } = require('./model.cjs');
 const { ConnectionHistory } = require('./connection-history.cjs');
 class Scheduler {
-  constructor({ state, core, guard, persist, notify = () => {}, clock = Date.now, serialize = work => work(), history = new ConnectionHistory() }) {
-    Object.assign(this, { state, core, guard, persist, notify, clock, serialize, history });
+  constructor({ state, core, guard, persist, notify = () => {}, clock = Date.now, serialize = work => work(), history = new ConnectionHistory(), logSwitch = () => {}, traffic = null }) {
+    Object.assign(this, { state, core, guard, persist, notify, clock, serialize, history, logSwitch, traffic });
     this.reset();
   }
   reset() { this.epoch = randomUUID(); this.previous = new Map(); this.metrics = {}; this.subscriptionBytes = {}; this.applicationBytes = {}; this.memory = new Map(); this.alerts = []; this.connections = []; this.lastSample = null; this.lastDelay = null; this.delays = {}; this.delayRevision = 0; }
@@ -46,6 +46,7 @@ class Scheduler {
       if (subscriptionId) this.subscriptionBytes[subscriptionId] = (this.subscriptionBytes[subscriptionId] || 0) + increment;
       const app = c.metadata?.process || c.metadata?.processPath?.split(/[\\/]/).at(-1) || '未识别应用';
       this.applicationBytes[app] = (this.applicationBytes[app] || 0) + increment;
+      if (increment > 0) this.traffic?.add(now, subscriptionId, increment);
       const refs = this.ruleIndex.get(scene?.id) || [];
       const exit = actual || previousExit ? 'proxy' : c.chains?.includes('DIRECT') ? 'direct' : c.chains?.includes('REJECT') ? 'reject' : 'unknown';
       return { id: c.id, sceneId: scene?.id || previousLine?.sceneId, nodeId: actual?.id || previousExit?.nodeId, subscriptionId, exit, process: app, network: c.metadata?.network || 'unknown', host: c.metadata?.host || '', bytes: total, temporary: !!scene && (actual?.id || previousExit?.nodeId) !== scene.selected,
@@ -84,10 +85,10 @@ class Scheduler {
     const list = [...new Set(Array.isArray(ids) ? ids : [])].filter(id => known.has(id)).slice(0, 200);
     if (!list.length) throw Error('没有可查询的节点');
     const epoch = this.epoch;
-    // Manual probes run with a wider pool than periodic checks so a full subscription answers quickly.
-    for (let index = 0; index < list.length; index += 10) {
+    // Manual probes run wider and fail faster than periodic checks so a full subscription answers quickly.
+    for (let index = 0; index < list.length; index += 20) {
       if (this.cancelled || epoch !== this.epoch) break;
-      await Promise.all(list.slice(index, index + 10).map(async id => { try { const result = await this.core.delay(nodeName(id)); this.delays[id] = Number.isFinite(result.delay) && result.delay > 0 ? result.delay : Infinity; } catch { this.delays[id] = Infinity; } }));
+      await Promise.all(list.slice(index, index + 20).map(async id => { try { const result = await this.core.delay(nodeName(id), undefined, 2500); this.delays[id] = Number.isFinite(result.delay) && result.delay > 0 ? result.delay : Infinity; } catch { this.delays[id] = Infinity; } }));
     }
     this.delayRevision++;
     return Object.fromEntries(list.map(id => [id, Number.isFinite(this.delays[id]) ? this.delays[id] : null]));
@@ -137,6 +138,7 @@ class Scheduler {
       throw error;
     }
     this.runtime(sceneId).switched = this.clock(); this.runtime(sceneId).idle = null; this.invalidate();
+    this.logSwitch({ at: this.clock(), sceneId, sceneName: scene.name, subscriptionId: node.subscriptionId, fromSubscriptionId: before.subscriptionId || null, from: nodes(state).find(n => n.id === before.selected)?.name || null, to: node.name, reason: automatic ? (scene.anyCountry ? 'auto-any' : 'auto-country') : temporary ? 'temporary' : 'manual' });
     const failed = [];
     if (reconnect) {
       await this.guard();
@@ -166,6 +168,7 @@ class Scheduler {
     Object.assign(scene, saved); delete scene.temporary;
     try { await this.persist(state); } catch (e) { Object.assign(scene, before); await this.core.select(group(id), nodeName(before.selected)); throw e; }
     this.runtime(id).idle = null; this.invalidate();
+    this.logSwitch({ at: this.clock(), sceneId: id, sceneName: scene.name, subscriptionId: target.subscriptionId, fromSubscriptionId: before.subscriptionId || null, from: nodes(state).find(n => n.id === before.selected)?.name || null, to: target.name, reason: 'restore' });
   }
 }
 module.exports = { Scheduler };

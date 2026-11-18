@@ -4,7 +4,7 @@ const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;
 const format = (n = 0) => { const units = ['B', 'KiB', 'MiB', 'GiB', 'TiB']; let i = 0; while (n >= 1024 && i < units.length - 1) { n /= 1024; i++; } return `${n.toFixed(i ? 1 : 0)} ${units[i]}`; };
 const button = (action, label, data = '', cls = '') => `<button data-action="${action}" ${data} class="${cls}">${label}</button>`;
 const option = (value, label, current) => `<option value="${esc(value)}" ${String(value) === String(current) ? 'selected' : ''}>${esc(label)}</option>`;
-const pager = new ConnectionPager(), ui = { summaryOpen: false, connectionSubscription: '', openSub: '', chooseFill: null };
+const pager = new ConnectionPager(), ui = { summaryOpen: false, connectionSubscription: '', openSub: '', chooseFill: null, openSwitches: '', traffic: { range: 'd7', data: null, at: 0, requested: false } };
 let state, page = 'overview', modalSubmit, busy = false, scanResult = null;
 const backgroundDefault = { mode:'color', preset:'white', imageId:'', imageName:'', opacity:25, blur:0, fit:'cover', panelOpacity:100, panelBlur:0 };
 const backgroundPresets = [['white','霁雪'],['red','桃夭'],['orange','杏霞'],['yellow','桂月'],['cyan','碧汀'],['purple','藤烟'],['sage','苔影'],['cool','远岚'],['warm','暖玉']];
@@ -103,6 +103,33 @@ async function retryAttach() {
   catch (error) { message(`重新接入失败：${error.message}`, true); }
   finally { busy = false; }
 }
+const trafficRanges = [['today', '当天'], ['day24', '近 24 小时'], ['d7', '近 7 天'], ['d14', '近 14 天'], ['d30', '近 30 天'], ['all', '全部']];
+function paintTraffic() {
+  if (!$('traffic-chart')) return;
+  const data = ui.traffic.data;
+  document.querySelectorAll('[data-action="traffic-range"]').forEach(el => el.classList.toggle('active', el.dataset.range === ui.traffic.range));
+  if (!data) { $('traffic-chart').textContent = ui.traffic.requested ? '正在读取流量记录…' : ''; return; }
+  const chart = $('traffic-chart'), max = Math.max(1, ...data.rows.map(row => row.bytes));
+  // CSP 禁止内联 style 属性，宽度只能通过 CSSOM 设置。
+  chart.textContent = '';
+  if (!data.rows.length) { const empty = document.createElement('p'); empty.className = 'muted'; empty.textContent = '暂无记录'; chart.append(empty); }
+  for (const row of data.rows) {
+    const line = document.createElement('div'); line.className = 'traffic-row'; line.title = `${row.label} · ${format(row.bytes)}`;
+    const label = document.createElement('span'); label.className = 'traffic-label'; label.textContent = row.label;
+    const bar = document.createElement('span'); bar.className = 'traffic-bar';
+    const fill = document.createElement('i'); fill.style.width = `${(row.bytes / max * 100).toFixed(1)}%`;
+    bar.append(fill);
+    const value = document.createElement('span'); value.className = 'traffic-value'; value.textContent = format(row.bytes);
+    line.append(label, bar, value); chart.append(line);
+  }
+  $('traffic-total').textContent = `合计 ${format(data.total)} · ${data.unit === 'hour' ? '按小时' : '按天'} · 最多保留 30 天`;
+}
+async function loadTraffic(range) {
+  ui.traffic.range = range; ui.traffic.requested = true;
+  try { ui.traffic.data = await call('traffic', { range }); } catch (error) { ui.traffic.data = null; message(`读取流量记录失败：${error.message}`, true); }
+  ui.traffic.at = Date.now();
+  paintTraffic();
+}
 function openModal(html, submit) { $('edit-content').innerHTML = html; modalSubmit = submit; $('editor').showModal(); }
 function setHtml(el, html) { if (el._html !== html) { el.innerHTML = html; el._html = html; } }
 function keyed(container, items, make, update) {
@@ -112,7 +139,7 @@ function keyed(container, items, make, update) {
 }
 function routeTargets() { return [{ key: '@default', name: '默认线路', sceneId: state.defaultSceneId }, ...state.rules.map(r => ({ key: r.id, name: r.name, sceneId: r.sceneId, ruleId: r.id }))].filter(t => state.scenes.some(s => s.id === t.sceneId)); }
 function overview() {
-  return `<div id="welcome"></div><div id="alerts"></div><div class="cards"><div class="card"><span class="card-label">当前线路总速率</span><div class="metric" id="metric-speed"></div><p class="muted" id="metric-window"></p></div><div class="card"><span class="card-label">日常订阅观测流量</span><div class="metric" id="metric-main"></div><p class="muted">仅本次运行的已采样连接</p></div><div class="card"><span class="card-label">其他订阅观测流量</span><div class="metric" id="metric-other"></div><p class="muted">辅助判断主订阅消耗</p></div></div><div class="section-head"><h2>分流线路</h2><small id="route-count"></small></div><div class="scene-list" id="route-list"></div><div class="section-head"><h2>实际连接</h2><small>本次运行 · 含已结束连接 · 退出清空</small></div><div class="panel connections-panel"><div class="connection-tools"><span id="connection-mode"></span><label>订阅 <select id="connection-subscription" aria-label="筛选连接订阅"></select></label><div class="actions">${button('connections-pause','暂停刷新')}${button('connections-refresh','刷新快照')}${button('connections-resume','恢复实时')}</div></div><div class="connections-table"><table><thead><tr><th>应用 / 传输</th><th>命中线路</th><th>实际订阅</th><th>实际节点</th><th>采样累计</th><th>状态 / 发现时间</th></tr></thead><tbody id="connection-rows"></tbody></table></div><div class="pagination"><span id="connection-page-info"></span><div class="actions">${button('connections-prev','上一页')}<label for="connection-page">页码</label><input id="connection-page" type="number" min="1" value="1" aria-label="连接页码">${button('connections-go','跳转')}${button('connections-next','下一页')}</div></div></div><details class="panel" id="application-summary"><summary>按应用汇总本次观测流量</summary><table><thead><tr><th>应用</th><th>采样增量</th></tr></thead><tbody id="application-rows"></tbody></table></details><div id="runtime-errors"></div>`;
+  return `<div id="welcome"></div><div id="alerts"></div><div class="cards"><div class="card"><span class="card-label">当前线路总速率</span><div class="metric" id="metric-speed"></div><p class="muted" id="metric-window"></p></div><div class="card"><span class="card-label">日常订阅观测流量</span><div class="metric" id="metric-main"></div><p class="muted">仅本次运行的已采样连接</p></div><div class="card"><span class="card-label">其他订阅观测流量</span><div class="metric" id="metric-other"></div><p class="muted">辅助判断主订阅消耗</p></div></div><div class="section-head"><h2>观测流量历史</h2><small>最多保留 30 天</small></div><div class="panel traffic-panel"><div class="actions" id="traffic-ranges">${trafficRanges.map(([id, label]) => `<button type="button" data-action="traffic-range" data-range="${id}" class="${ui.traffic.range === id ? 'active' : ''}">${label}</button>`).join('')}</div><div id="traffic-chart" class="traffic-chart"></div><p class="muted" id="traffic-total"></p></div><div class="section-head"><h2>分流线路</h2><small id="route-count"></small></div><div class="scene-list" id="route-list"></div><div class="section-head"><h2>实际连接</h2><small>本次运行 · 含已结束连接 · 退出清空</small></div><div class="panel connections-panel"><div class="connection-tools"><span id="connection-mode"></span><label>订阅 <select id="connection-subscription" aria-label="筛选连接订阅"></select></label><div class="actions">${button('connections-pause','暂停刷新')}${button('connections-refresh','刷新快照')}${button('connections-resume','恢复实时')}</div></div><div class="connections-table"><table><thead><tr><th>应用 / 传输</th><th>命中线路</th><th>实际订阅</th><th>实际节点</th><th>采样累计</th><th>状态 / 发现时间</th></tr></thead><tbody id="connection-rows"></tbody></table></div><div class="pagination"><span id="connection-page-info"></span><div class="actions">${button('connections-prev','上一页')}<label for="connection-page">页码</label><input id="connection-page" type="number" min="1" value="1" aria-label="连接页码">${button('connections-go','跳转')}${button('connections-next','下一页')}</div></div></div><details class="panel" id="application-summary"><summary>按应用汇总本次观测流量</summary><table><thead><tr><th>应用</th><th>采样增量</th></tr></thead><tbody id="application-rows"></tbody></table></details><div id="runtime-errors"></div>`;
 }
 function updateOverview() {
   const total = Object.values(state.metrics).reduce((n, m) => n + m.speed, 0), mainId = state.scenes.find(s => s.id === state.defaultSceneId)?.subscriptionId;
@@ -134,6 +161,8 @@ function updateOverview() {
   updateConnections();
   setHtml($('application-rows'), Object.entries(state.applicationBytes).map(([app, bytes]) => `<tr><td>${esc(app)}</td><td>${format(bytes)}</td></tr>`).join('') || '<tr><td colspan="2">暂无采样</td></tr>');
   setHtml($('runtime-errors'), state.errors.length ? '<div class="section-head"><h2>运行提示</h2></div><div class="panel">' + state.errors.map(e => `<p class="muted">${new Date(e.at).toLocaleTimeString()} · ${esc(e.message)}</p>`).join('') + '</div>' : '');
+  paintTraffic();
+  if (!ui.traffic.requested || Date.now() - ui.traffic.at > 60000) loadTraffic(ui.traffic.range);
 }
 function updateConnections() {
   const choices = [['','全部订阅'], ...state.subscriptions.map(s => [s.id,s.name]), ['@unknown','未归属 / 直连']];
@@ -152,8 +181,13 @@ function rules() {
   return `<div class="panel"><div class="section-head"><div><h2>默认线路</h2><p class="muted">${s ? esc(subName(s.subscriptionId)) + ' · ' + esc(nodeName(s.selected)) : '请先添加订阅'}</p></div>${button('edit-default','设置默认线路')}</div><p class="muted">未单独设置的分流，以及其他未匹配的代理流量，都使用此线路。</p></div><div class="section-head"><h2>分流管理</h2><div class="actions">${button('preset','主副分流预设')}${button('add-entry','＋ 添加分流','','primary')}</div></div><div class="panel"><p class="muted">按顺序匹配；同类应用或域名为“或”，同时指定应用和网站为“且”。基础直连保持优先。</p><table><thead><tr><th>顺序 / 名称</th><th>匹配对象</th><th>线路</th><th>操作</th></tr></thead><tbody>${state.rules.map((r,i) => `<tr><td>${i+1}. ${esc(r.name)}${r.enabled === false ? '（停用）' : ''}</td><td class="match-target">${[...(r.processPaths || []), ...r.processes, ...r.domains].map(esc).join('<br>')}</td><td>${r.sceneId === state.defaultSceneId ? '跟随默认线路' : (state.rules.filter(x=>x.sceneId===r.sceneId).length>1?'共享旧线路':'独立设置') + ' · ' + esc(subName(state.scenes.find(s => s.id === r.sceneId)?.subscriptionId))}</td><td><div class="rule-actions">${button('up-rule','↑',`data-id="${r.id}" aria-label="上移分流"`)}${button('edit-entry','编辑',`data-id="${r.id}"`)}${button('entry-choose','选择路线',`data-id="${r.id}"`)}${button('remove-entry','删除',`data-id="${r.id}"`)}</div></td></tr>`).join('') || '<tr><td colspan="4" class="empty">点击添加分流，选择应用或填写网站即可。</td></tr>'}</tbody></table></div>`;
 }
 
-function subscriptions() {
-  return `<div class="section-head"><h2>统一管理，独立更新</h2><div class="actions">${button('import', '读取 Verge 订阅')}${button('add-sub', '＋ 添加订阅', '', 'primary')}</div></div><p class="muted">Verge 订阅由 Verge 更新；助手添加的订阅默认每日更新。仅支持含 proxies 的 Mihomo YAML。</p>${state.subscriptions.map(s => `<article class="panel subscription"><div class="section-head"><div><h3>${esc(s.name)}</h3><p class="muted">${s.kind === 'verge' ? 'Verge 引用' : s.kind === 'url' ? 'HTTPS 订阅' : '本地文件'} · ${s.nodes.length} 个节点 · 更新于 ${new Date(s.updatedAt).toLocaleString()}</p></div><div class="actions">${button('probe-delays', '查询节点延迟', `data-id="${s.id}"`)}${button('refresh', '更新', `data-id="${s.id}"`)}${button('remove-sub', '移除', `data-id="${s.id}"`, 'danger')}</div></div>${s.error ? `<p class="notice">${esc(s.error)}</p>` : ''}<small>本次观测 ${format(state.subscriptionBytes[s.id] || 0)}</small><details ${ui.openSub === s.id ? 'open' : ''} data-sub="${s.id}"><summary>查看节点与国家来源</summary><table class="nodes"><thead><tr><th>节点</th><th>国家</th><th>来源</th><th>延迟</th><th>检测</th></tr></thead><tbody>${s.nodes.map(n => `<tr><td>${esc(n.name)}</td><td>${esc(n.country || '未知')}</td><td>${esc(n.countrySource)}</td><td>${delayText(n)}</td><td>${button('probe', '检测实际出口', `data-id="${n.id}"`)}</td></tr>`).join('')}</tbody></table><p class="notice">「查询节点延迟」向该订阅每个节点各发一次小请求，延迟高低不代表带宽；「检测实际出口」使用独立测试内核向 Cloudflare 发送少量流量，不改业务组选择；名称标注并非已验证地理位置。</p></details></article>`).join('') || '<div class="panel empty">尚未添加订阅。可先读取 Verge 已导入的订阅。</div>'}`;
+const switchReasons = { 'auto-country': '同国自动', 'auto-any': '最低延迟自动', manual: '手动', temporary: '临时加速', restore: '恢复路线' };
+function switchLog(subId) {
+  const rows = (state.switches || []).filter(x => x.subscriptionId === subId || x.fromSubscriptionId === subId).slice(-20).reverse();
+  if (!rows.length) return '';
+  return `<details class="switch-log" ${ui.openSwitches === subId ? 'open' : ''} data-switch="${subId}"><summary>节点切换记录（${rows.length}）</summary><table class="nodes"><thead><tr><th>时间</th><th>线路</th><th>节点变化</th><th>原因</th></tr></thead><tbody>${rows.map(x => `<tr><td>${new Date(x.at).toLocaleString()}</td><td>${esc(x.sceneName || '')}</td><td>${esc(x.from || '—')} → ${esc(x.to || '—')}</td><td>${esc(switchReasons[x.reason] || x.reason || '')}</td></tr>`).join('')}</tbody></table></details>`;
+}
+function subscriptions() {  return `<div class="section-head"><h2>统一管理，独立更新</h2><div class="actions">${button('import', '读取 Verge 订阅')}${button('add-sub', '＋ 添加订阅', '', 'primary')}</div></div><p class="muted">Verge 订阅由 Verge 更新；助手添加的订阅默认每日更新。仅支持含 proxies 的 Mihomo YAML。</p>${state.subscriptions.map(s => `<article class="panel subscription"><div class="section-head"><div><h3>${esc(s.name)}</h3><p class="muted">${s.kind === 'verge' ? 'Verge 引用' : s.kind === 'url' ? 'HTTPS 订阅' : '本地文件'} · ${s.nodes.length} 个节点 · 更新于 ${new Date(s.updatedAt).toLocaleString()}</p></div><div class="actions">${button('probe-delays', '查询节点延迟', `data-id="${s.id}"`)}${button('refresh', '更新', `data-id="${s.id}"`)}${button('remove-sub', '移除', `data-id="${s.id}"`, 'danger')}</div></div>${s.error ? `<p class="notice">${esc(s.error)}</p>` : ''}<small>本次观测 ${format(state.subscriptionBytes[s.id] || 0)}</small><details ${ui.openSub === s.id ? 'open' : ''} data-sub="${s.id}"><summary>查看节点与国家来源</summary><table class="nodes"><thead><tr><th>节点</th><th>国家</th><th>来源</th><th>延迟</th><th>检测</th></tr></thead><tbody>${s.nodes.map(n => `<tr><td>${esc(n.name)}</td><td>${esc(n.country || '未知')}</td><td>${esc(n.countrySource)}</td><td>${delayText(n)}</td><td>${button('probe', '检测实际出口', `data-id="${n.id}"`)}</td></tr>`).join('')}</tbody></table><p class="notice">「查询节点延迟」向该订阅每个节点各发一次小请求，延迟高低不代表带宽；「检测实际出口」使用独立测试内核向 Cloudflare 发送少量流量，不改业务组选择；名称标注并非已验证地理位置。</p></details>${switchLog(s.id)}</article>`).join('') || '<div class="panel empty">尚未添加订阅。可先读取 Verge 已导入的订阅。</div>'}`;
 }
 
 function setup() {
@@ -255,6 +289,7 @@ async function act(action,el) {
     case 'connections-prev': await fetchConnections(pager.paused ? 'snapshot' : 'pause', pager.page-1);break;
     case 'connections-next': await fetchConnections(pager.paused ? 'snapshot' : 'pause', pager.page+1);break;
     case 'connections-go': await fetchConnections(pager.paused ? 'snapshot' : 'pause', Number($('connection-page').value));break;
+    case 'traffic-range': await loadTraffic(el.dataset.range); break;
     case 'scan': scanResult = await call('scan'); message('发现完成；若路径不符可手动选择。'); break;
     case 'pick-dir': case 'pick-core': { const file = await call('pick', { kind: action === 'pick-dir' ? 'dir' : 'core' }); if (file) scanResult = await call('paths', action === 'pick-dir' ? { vergeDir: file } : { corePath: file }); break; }
     case 'import': { const result = await call('import'); message(`已读取 ${result?.count ?? 3} 个订阅。${result?.errors?.join('；') || ''}`); break; }
@@ -290,7 +325,7 @@ async function act(action,el) {
 $('cancel').onclick=()=>$('editor').close();
 $('status').addEventListener('click',retryAttach);
 $('status').addEventListener('keydown',event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();retryAttach();}});
-document.addEventListener('toggle',event=>{const el=event.target.closest?.('details[data-sub]');if(el)ui.openSub=el.open?el.dataset.sub:'';},true);
+document.addEventListener('toggle',event=>{const sub=event.target.closest?.('details[data-sub]');if(sub)ui.openSub=sub.open?sub.dataset.sub:'';const log=event.target.closest?.('details[data-switch]');if(log)ui.openSwitches=log.open?log.dataset.switch:'';},true);
 $('edit-form').onsubmit=async event=>{event.preventDefault();if(busy)return;busy=true;try{await modalSubmit();$('editor').close();render();}catch(e){message(e.message,true);}finally{busy=false;}};
 document.addEventListener('click',async event=>{
   const preset=event.target.closest('[data-bg-preset]'); if(preset){backgroundDraft.preset=preset.dataset.bgPreset; backgroundDraft.mode='color'; refreshBackgroundControls(); applyBackground(); saveBackground(); return;}
