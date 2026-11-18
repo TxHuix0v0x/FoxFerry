@@ -251,7 +251,7 @@ class Service {
     const now = Date.now();
     await this.guard({ cached: true });
     await this.scheduler.sample();
-    if (now - this.lastTrafficFlush >= 30000) { this.lastTrafficFlush = now; this.traffic.flush(now).catch(() => {}); }
+    if (now - this.lastTrafficFlush >= 120000) { this.lastTrafficFlush = now; this.traffic.flush(now).catch(() => {}); }
     if (!this.delayJob && (this.scheduler.lastDelay === null || now - this.scheduler.lastDelay >= this.state.preferences.delayInterval)) {
       this.delayJob = this.scheduler.checkDelays().catch(e => this.fail(e)).finally(() => { this.delayJob = null; });
     }

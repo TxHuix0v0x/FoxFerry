@@ -4,7 +4,7 @@ const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;
 const format = (n = 0) => { const units = ['B', 'KiB', 'MiB', 'GiB', 'TiB']; let i = 0; while (n >= 1024 && i < units.length - 1) { n /= 1024; i++; } return `${n.toFixed(i ? 1 : 0)} ${units[i]}`; };
 const button = (action, label, data = '', cls = '') => `<button data-action="${action}" ${data} class="${cls}">${label}</button>`;
 const option = (value, label, current) => `<option value="${esc(value)}" ${String(value) === String(current) ? 'selected' : ''}>${esc(label)}</option>`;
-const pager = new ConnectionPager(), ui = { summaryOpen: false, connectionSubscription: '', openSub: '', chooseFill: null, openSwitches: '', traffic: { range: 'd7', data: null, at: 0, requested: false } };
+const pager = new ConnectionPager(), ui = { summaryOpen: false, connectionSubscription: '', openSub: '', chooseFill: null, openSwitches: '', trafficOpen: false, traffic: { range: 'd7', data: null, at: 0, requested: false } };
 let state, page = 'overview', modalSubmit, busy = false, scanResult = null;
 const backgroundDefault = { mode:'color', preset:'white', imageId:'', imageName:'', opacity:25, blur:0, fit:'cover', panelOpacity:100, panelBlur:0 };
 const backgroundPresets = [['white','霁雪'],['red','桃夭'],['orange','杏霞'],['yellow','桂月'],['cyan','碧汀'],['purple','藤烟'],['sage','苔影'],['cool','远岚'],['warm','暖玉']];
@@ -129,7 +129,7 @@ function trafficHeat(data) {
   const first = new Date(`${rows[0]?.date || ''}T00:00:00`);
   const offset = Number.isFinite(first.getTime()) ? (first.getDay() + 6) % 7 : 0;
   const days = document.createElement('div'); days.className = 'traffic-heat-days';
-  for (const name of ['周一', '周二', '周三', '周四', '周五', '周六', '周日']) { const span = document.createElement('span'); span.textContent = name; days.append(span); }
+  for (const name of ['周一', '', '周三', '', '周五', '', '周日']) { const span = document.createElement('span'); span.textContent = name; days.append(span); }
   const grid = document.createElement('div'); grid.className = 'traffic-heat-grid';
   rows.forEach((row, index) => {
     const level = row.bytes ? Math.max(1, Math.ceil(row.bytes / max * 4)) : 0;
@@ -139,9 +139,10 @@ function trafficHeat(data) {
     cell.title = `${row.date || row.label} · ${format(row.bytes)}`;
     grid.append(cell);
   });
+  const main = document.createElement('div'); main.className = 'traffic-heat-main'; main.append(days, grid);
   const legend = document.createElement('div'); legend.className = 'traffic-heat-legend';
   legend.innerHTML = '少' + [0, 1, 2, 3, 4].map(level => `<i class="traffic-cell l${level}"></i>`).join('') + '多';
-  box.append(days, grid, legend); return box;
+  box.append(main, legend); return box;
 }
 function paintTraffic() {
   if (!$('traffic-chart')) return;
@@ -152,7 +153,7 @@ function paintTraffic() {
   if (!data.rows.length) { const empty = document.createElement('p'); empty.className = 'muted'; empty.textContent = '暂无记录'; chart.append(empty); }
   else chart.append(data.range === 'all' ? trafficHeat(data) : trafficBars(data));
   const first = data.rows[0]?.date || data.rows[0]?.label || '';
-  $('traffic-total').textContent = data.range === 'all' && first ? `${first} – 今天 · 合计 ${format(data.total)} · 最多保留 30 天` : `合计 ${format(data.total)} · ${data.unit === 'hour' ? '按小时' : '按天'} · 最多保留 30 天`;
+  $('traffic-total').textContent = data.range === 'all' && first ? `${first} – 今天 · 合计 ${format(data.total)} · 最多保留 1 年` : `合计 ${format(data.total)} · ${data.unit === 'hour' ? '按小时' : '按天'} · 最多保留 1 年`;
 }
 async function loadTraffic(range) {
   ui.traffic.range = range; ui.traffic.requested = true;
@@ -169,7 +170,7 @@ function keyed(container, items, make, update) {
 }
 function routeTargets() { return [{ key: '@default', name: '默认线路', sceneId: state.defaultSceneId }, ...state.rules.map(r => ({ key: r.id, name: r.name, sceneId: r.sceneId, ruleId: r.id }))].filter(t => state.scenes.some(s => s.id === t.sceneId)); }
 function overview() {
-  return `<div id="welcome"></div><div id="alerts"></div><div class="cards"><div class="card"><span class="card-label">当前线路总速率</span><div class="metric" id="metric-speed"></div><p class="muted" id="metric-window"></p></div><div class="card"><span class="card-label">日常订阅观测流量</span><div class="metric" id="metric-main"></div><p class="muted">仅本次运行的已采样连接</p></div><div class="card"><span class="card-label">其他订阅观测流量</span><div class="metric" id="metric-other"></div><p class="muted">辅助判断主订阅消耗</p></div></div><div class="section-head"><h2>观测流量历史</h2><small>最多保留 30 天</small></div><div class="panel traffic-panel"><div class="actions" id="traffic-ranges">${trafficRanges.map(([id, label]) => `<button type="button" data-action="traffic-range" data-range="${id}" class="${ui.traffic.range === id ? 'active' : ''}">${label}</button>`).join('')}</div><div id="traffic-chart" class="traffic-chart"></div><p class="muted" id="traffic-total"></p></div><div class="section-head"><h2>分流线路</h2><small id="route-count"></small></div><div class="scene-list" id="route-list"></div><div class="section-head"><h2>实际连接</h2><small>本次运行 · 含已结束连接 · 退出清空</small></div><div class="panel connections-panel"><div class="connection-tools"><span id="connection-mode"></span><label>订阅 <select id="connection-subscription" aria-label="筛选连接订阅"></select></label><div class="actions">${button('connections-pause','暂停刷新')}${button('connections-refresh','刷新快照')}${button('connections-resume','恢复实时')}</div></div><div class="connections-table"><table><thead><tr><th>应用 / 传输</th><th>命中线路</th><th>实际订阅</th><th>实际节点</th><th>采样累计</th><th>状态 / 发现时间</th></tr></thead><tbody id="connection-rows"></tbody></table></div><div class="pagination"><span id="connection-page-info"></span><div class="actions">${button('connections-prev','上一页')}<label for="connection-page">页码</label><input id="connection-page" type="number" min="1" value="1" aria-label="连接页码">${button('connections-go','跳转')}${button('connections-next','下一页')}</div></div></div><details class="panel" id="application-summary"><summary>按应用汇总本次观测流量</summary><table><thead><tr><th>应用</th><th>采样增量</th></tr></thead><tbody id="application-rows"></tbody></table></details><div id="runtime-errors"></div>`;
+  return `<div id="welcome"></div><div id="alerts"></div><div class="cards"><div class="card"><span class="card-label">当前线路总速率</span><div class="metric" id="metric-speed"></div><p class="muted" id="metric-window"></p></div><div class="card"><span class="card-label">日常订阅观测流量</span><div class="metric" id="metric-main"></div><p class="muted">仅本次运行的已采样连接</p></div><div class="card"><span class="card-label">其他订阅观测流量</span><div class="metric" id="metric-other"></div><p class="muted">辅助判断主订阅消耗</p></div></div><details class="panel traffic-panel" id="traffic-details" ${ui.trafficOpen ? 'open' : ''}><summary>观测流量历史 <small>最多保留 1 年</small></summary><div class="actions" id="traffic-ranges">${trafficRanges.map(([id, label]) => `<button type="button" data-action="traffic-range" data-range="${id}" class="${ui.traffic.range === id ? 'active' : ''}">${label}</button>`).join('')}</div><div id="traffic-chart" class="traffic-chart"></div><p class="muted" id="traffic-total"></p></details><div class="section-head"><h2>分流线路</h2><small id="route-count"></small></div><div class="scene-list" id="route-list"></div><div class="section-head"><h2>实际连接</h2><small>本次运行 · 含已结束连接 · 退出清空</small></div><div class="panel connections-panel"><div class="connection-tools"><span id="connection-mode"></span><label>订阅 <select id="connection-subscription" aria-label="筛选连接订阅"></select></label><div class="actions">${button('connections-pause','暂停刷新')}${button('connections-refresh','刷新快照')}${button('connections-resume','恢复实时')}</div></div><div class="connections-table"><table><thead><tr><th>应用 / 传输</th><th>命中线路</th><th>实际订阅</th><th>实际节点</th><th>采样累计</th><th>状态 / 发现时间</th></tr></thead><tbody id="connection-rows"></tbody></table></div><div class="pagination"><span id="connection-page-info"></span><div class="actions">${button('connections-prev','上一页')}<label for="connection-page">页码</label><input id="connection-page" type="number" min="1" value="1" aria-label="连接页码">${button('connections-go','跳转')}${button('connections-next','下一页')}</div></div></div><details class="panel" id="application-summary"><summary>按应用汇总本次观测流量</summary><table><thead><tr><th>应用</th><th>采样增量</th></tr></thead><tbody id="application-rows"></tbody></table></details><div id="runtime-errors"></div>`;
 }
 function updateOverview() {
   const total = Object.values(state.metrics).reduce((n, m) => n + m.speed, 0), mainId = state.scenes.find(s => s.id === state.defaultSceneId)?.subscriptionId;
@@ -192,7 +193,7 @@ function updateOverview() {
   setHtml($('application-rows'), Object.entries(state.applicationBytes).map(([app, bytes]) => `<tr><td>${esc(app)}</td><td>${format(bytes)}</td></tr>`).join('') || '<tr><td colspan="2">暂无采样</td></tr>');
   setHtml($('runtime-errors'), state.errors.length ? '<div class="section-head"><h2>运行提示</h2></div><div class="panel">' + state.errors.map(e => `<p class="muted">${new Date(e.at).toLocaleTimeString()} · ${esc(e.message)}</p>`).join('') + '</div>' : '');
   paintTraffic();
-  if (!ui.traffic.requested || Date.now() - ui.traffic.at > 60000) loadTraffic(ui.traffic.range);
+  if ($('traffic-details')?.open && (!ui.traffic.requested || Date.now() - ui.traffic.at > 60000)) loadTraffic(ui.traffic.range);
 }
 function updateConnections() {
   const choices = [['','全部订阅'], ...state.subscriptions.map(s => [s.id,s.name]), ['@unknown','未归属 / 直连']];
@@ -355,7 +356,7 @@ async function act(action,el) {
 $('cancel').onclick=()=>$('editor').close();
 $('status').addEventListener('click',retryAttach);
 $('status').addEventListener('keydown',event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();retryAttach();}});
-document.addEventListener('toggle',event=>{const sub=event.target.closest?.('details[data-sub]');if(sub)ui.openSub=sub.open?sub.dataset.sub:'';const log=event.target.closest?.('details[data-switch]');if(log)ui.openSwitches=log.open?log.dataset.switch:'';},true);
+document.addEventListener('toggle',event=>{const sub=event.target.closest?.('details[data-sub]');if(sub)ui.openSub=sub.open?sub.dataset.sub:'';const log=event.target.closest?.('details[data-switch]');if(log)ui.openSwitches=log.open?log.dataset.switch:'';const traffic=event.target.closest?.('details#traffic-details');if(traffic){ui.trafficOpen=traffic.open;if(traffic.open)loadTraffic(ui.traffic.range);}},true);
 $('edit-form').onsubmit=async event=>{event.preventDefault();if(busy)return;busy=true;try{await modalSubmit();$('editor').close();render();}catch(e){message(e.message,true);}finally{busy=false;}};
 document.addEventListener('click',async event=>{
   const preset=event.target.closest('[data-bg-preset]'); if(preset){backgroundDraft.preset=preset.dataset.bgPreset; backgroundDraft.mode='color'; refreshBackgroundControls(); applyBackground(); saveBackground(); return;}
