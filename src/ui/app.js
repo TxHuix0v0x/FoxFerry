@@ -105,12 +105,13 @@ async function retryAttach() {
 }
 const trafficRanges = [['today', '当天'], ['day24', '近 24 小时'], ['d7', '近 7 天'], ['d14', '近 14 天'], ['d30', '近 30 天'], ['all', '全部']];
 function trafficBars(data) {
-  const wrap = document.createElement('div'); wrap.className = 'traffic-plot';
+  const plot = document.createElement('div'); plot.className = 'traffic-plot';
   const max = Math.max(1, ...data.rows.map(row => row.bytes));
   const axis = document.createElement('div'); axis.className = 'traffic-yaxis';
-  const top = document.createElement('span'); top.textContent = format(max);
-  const bottom = document.createElement('span'); bottom.textContent = '0';
-  axis.append(top, bottom);
+  for (const value of [max, Math.round(max / 2), 0]) { const span = document.createElement('span'); span.textContent = format(value); axis.append(span); }
+  const body = document.createElement('div'); body.className = 'traffic-bars-wrap';
+  const grid = document.createElement('div'); grid.className = 'traffic-grid'; grid.setAttribute('aria-hidden', 'true');
+  for (let index = 0; index < 3; index++) grid.append(document.createElement('span'));
   const bars = document.createElement('div'); bars.className = 'traffic-bars';
   const sparse = data.rows.length > 14;
   data.rows.forEach((row, index) => {
@@ -121,7 +122,7 @@ function trafficBars(data) {
     const tick = document.createElement('span'); tick.className = 'traffic-tick'; tick.textContent = sparse && index % 3 ? '' : row.label;
     column.append(track, tick); bars.append(column);
   });
-  wrap.append(axis, bars); return wrap;
+  body.append(grid, bars); plot.append(axis, body); return plot;
 }
 function trafficHeat(data) {
   const box = document.createElement('div'); box.className = 'traffic-heat';
