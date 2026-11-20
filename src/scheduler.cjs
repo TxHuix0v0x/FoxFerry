@@ -134,16 +134,16 @@ class Scheduler {
     const state = this.state(); const now = this.clock();
     const epoch = this.epoch;
     this.lastDelay = now;
-    // Limit concurrent probes; latency checks are not bandwidth tests.
+    // Probe ten nodes at a time: a full subscription should finish in well under a minute.
     const pending = [...new Set(state.scenes.filter(s => s.mode === 'auto' && !s.temporary).flatMap(s => candidates(state, s).map(n => n.id)))];
     this.noteAuto({ id: 'check', name: '延迟检查', mode: 'auto' }, `开始探测 ${pending.length} 个节点`);
-    for (let index = 0; index < pending.length; index += 4) {
+    for (let index = 0; index < pending.length; index += 10) {
       if (this.cancelled || epoch !== this.epoch) return;
-      await Promise.all(pending.slice(index, index + 4).map(async id => { try { const result = await this.core.delay(nodeName(id)); this.delays[id] = Number.isFinite(result.delay) && result.delay > 0 ? result.delay : Infinity; } catch { this.delays[id] = Infinity; } }));
+      await Promise.all(pending.slice(index, index + 10).map(async id => { try { const result = await this.core.delay(nodeName(id)); this.delays[id] = Number.isFinite(result.delay) && result.delay > 0 ? result.delay : Infinity; } catch { this.delays[id] = Infinity; } }));
     }
     this.delayRevision++;
     const failed = pending.filter(id => this.delays[id] === Infinity).length;
-    this.noteAuto({ id: 'check', name: '延迟检查', mode: 'auto' }, `探测完成：${pending.length - failed} 个可用 / ${failed} 个超时`);
+    this.noteAuto({ id: 'check', name: '延迟检查', mode: 'auto' }, `探测完成：${pending.length - failed} 个可用 / ${failed} 个超时，耗时 ${Math.round((this.clock() - now) / 1000)} 秒`);
     await this.applyAuto(epoch);
   }
   async switch(sceneId, nodeId, { automatic = false, reconnect = false, temporary = false, alertId = null } = {}) {
