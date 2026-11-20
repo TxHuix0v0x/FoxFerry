@@ -5,10 +5,10 @@ const { Scheduler } = require('../src/scheduler.cjs');
 const { createDemo } = require('../src/simulation.cjs');
 const { nodeName, group } = require('../src/model.cjs');
 function fixture() {
-  const { state } = createDemo(); let now = 0; const writes = [], closed = [], log = []; let conns = [];
+  const { state } = createDemo(); let now = 0; const writes = [], closed = [], log = [], events = []; let conns = [];
   const core = { select: async (g, n) => writes.push([g, n]), delay: async name => ({ delay: name === nodeName(state.subscriptions[0].nodes[1].id) ? 10 : 100 }), connections: async () => ({ connections: conns }), close: async id => closed.push(id) };
-  const scheduler = new Scheduler({ state: () => state, core, guard: async () => {}, persist: async () => {}, clock: () => now, logSwitch: entry => log.push(entry) });
-  return { state, scheduler, core, writes, closed, log, time: v => { now = v; }, connections: v => { conns = v; } };
+  const scheduler = new Scheduler({ state: () => state, core, guard: async () => {}, persist: async () => {}, clock: () => now, logSwitch: entry => log.push(entry), logAuto: entry => events.push(entry) });
+  return { state, scheduler, core, writes, closed, log, events, time: v => { now = v; }, connections: v => { conns = v; } };
 }
 test('node switches are recorded with a reason for manual, automatic and temporary routes', async () => {
   const f = fixture(); const scene = f.state.scenes[0];
@@ -104,6 +104,7 @@ test('a timed-out selected node is replaced even inside the dwell window', async
   await f.scheduler.checkDelays();
   assert.equal(scene.selected, healthy.id);
   assert.equal(f.log.at(-1).reason, 'auto-country');
+  assert.ok(f.events.some(e => e.decision === '已切换' && e.reason === '当前节点超时'));
 });
 test('manual selection preserves same-subscription candidate edits and choosing permanent ends acceleration', async () => {
   const f = fixture(); const s = f.state.scenes[0]; s.candidates = [s.selected]; s.countries = ['JP'];

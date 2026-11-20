@@ -3,11 +3,17 @@ const { randomUUID } = require('node:crypto');
 const { nodes, candidates, country, group, nodeName } = require('./model.cjs');
 const { ConnectionHistory } = require('./connection-history.cjs');
 class Scheduler {
-  constructor({ state, core, guard, persist, notify = () => {}, clock = Date.now, serialize = work => work(), history = new ConnectionHistory(), logSwitch = () => {}, traffic = null }) {
-    Object.assign(this, { state, core, guard, persist, notify, clock, serialize, history, logSwitch, traffic });
+  constructor({ state, core, guard, persist, notify = () => {}, clock = Date.now, serialize = work => work(), history = new ConnectionHistory(), logSwitch = () => {}, logAuto = () => {}, traffic = null }) {
+    Object.assign(this, { state, core, guard, persist, notify, clock, serialize, history, logSwitch, logAuto, traffic });
     this.reset();
   }
-  reset() { this.epoch = randomUUID(); this.previous = new Map(); this.metrics = {}; this.subscriptionBytes = {}; this.applicationBytes = {}; this.memory = new Map(); this.alerts = []; this.connections = []; this.lastSample = null; this.lastDelay = null; this.delays = {}; this.delayRevision = 0; }
+  reset() { this.epoch = randomUUID(); this.previous = new Map(); this.metrics = {}; this.subscriptionBytes = {}; this.applicationBytes = {}; this.memory = new Map(); this.alerts = []; this.connections = []; this.lastSample = null; this.lastDelay = null; this.delays = {}; this.delayRevision = 0; this.autoChecks = []; }
+  noteAuto(scene, decision, detail = {}) {
+    const entry = { at: this.clock(), sceneId: scene.id, sceneName: scene.name, mode: scene.mode, decision, ...detail };
+    this.autoChecks.push(entry);
+    if (this.autoChecks.length > 60) this.autoChecks.shift();
+    try { this.logAuto?.(entry); } catch { /* Diagnostics must never break scheduling. */ }
+  }
   invalidate() { this.epoch = randomUUID(); this.alerts = []; }
   runtime(id) { if (!this.memory.has(id)) this.memory.set(id, { samples: [], high: null, idle: null, alerted: null, switched: null }); return this.memory.get(id); }
   async sample() {
@@ -100,13 +106,27 @@ class Scheduler {
       if (this.cancelled || epoch !== this.epoch) return;
       const state = this.state(), now = this.clock();
       for (const scene of state.scenes) {
-        if (scene.mode !== 'auto' || scene.temporary) continue;
+        if (scene.mode !== 'auto') { this.noteAuto(scene, '手动线路，不参与自动检查'); continue; }
+        if (scene.temporary) { this.noteAuto(scene, '临时加速中，暂停自动选线'); continue; }
         const pool = candidates(state, scene).filter(n => Number.isFinite(this.delays[n.id]));
         const best = pool.sort((a, b) => this.delays[a.id] - this.delays[b.id])[0];
-        if (!best) { this.alert(scene, 'unavailable', scene.anyCountry ? '当前订阅没有可用候选（候选节点或允许国家筛选后为空）；保持原路线，可手动选择其他订阅或节点' : '当前订阅及锁定国家没有可用候选；保持原路线，可手动选择其他订阅或国家'); continue; }
+        const detail = { lock: scene.anyCountry ? '不限国家' : scene.countryLock || '国家未知', candidates: pool.length };
+        if (!best) { this.noteAuto(scene, '无可用候选', detail); this.alert(scene, 'unavailable', scene.anyCountry ? '当前订阅没有可用候选（候选节点或允许国家筛选后为空）；保持原路线，可手动选择其他订阅或节点' : '当前订阅及锁定国家没有可用候选；保持原路线，可手动选择其他订阅或国家'); continue; }
         const currentDelay = this.delays[scene.selected] ?? Infinity;
         const mem = this.runtime(scene.id);
-        if (best.id !== scene.selected && (currentDelay === Infinity || ((mem.switched === null || now - mem.switched >= state.preferences.dwell) && currentDelay - this.delays[best.id] > state.preferences.tolerance))) await this.switch(scene.id, best.id, { automatic: true });
+        const currentText = Number.isFinite(currentDelay) ? `${currentDelay}ms` : '超时';
+        if (best.id === scene.selected) { this.noteAuto(scene, '保持：当前已是最快', { ...detail, current: currentText }); continue; }
+        if (currentDelay !== Infinity) {
+          if (mem.switched !== null && now - mem.switched < state.preferences.dwell) { this.noteAuto(scene, '等待驻留期', { ...detail, current: currentText, best: `${this.delays[best.id]}ms ${best.name}` }); continue; }
+          if (currentDelay - this.delays[best.id] <= state.preferences.tolerance) { this.noteAuto(scene, '保持：差值在容差内', { ...detail, current: currentText, best: `${this.delays[best.id]}ms ${best.name}` }); continue; }
+        }
+        try {
+          await this.switch(scene.id, best.id, { automatic: true });
+          this.noteAuto(scene, '已切换', { ...detail, current: currentText, to: best.name, reason: currentDelay === Infinity ? '当前节点超时' : '更快节点' });
+        } catch (error) {
+          this.noteAuto(scene, '切换失败', { ...detail, error: String(error?.message || error) });
+          throw error;
+        }
       }
     });
   }
@@ -116,11 +136,14 @@ class Scheduler {
     this.lastDelay = now;
     // Limit concurrent probes; latency checks are not bandwidth tests.
     const pending = [...new Set(state.scenes.filter(s => s.mode === 'auto' && !s.temporary).flatMap(s => candidates(state, s).map(n => n.id)))];
+    this.noteAuto({ id: 'check', name: '延迟检查', mode: 'auto' }, `开始探测 ${pending.length} 个节点`);
     for (let index = 0; index < pending.length; index += 4) {
       if (this.cancelled || epoch !== this.epoch) return;
       await Promise.all(pending.slice(index, index + 4).map(async id => { try { const result = await this.core.delay(nodeName(id)); this.delays[id] = Number.isFinite(result.delay) && result.delay > 0 ? result.delay : Infinity; } catch { this.delays[id] = Infinity; } }));
     }
     this.delayRevision++;
+    const failed = pending.filter(id => this.delays[id] === Infinity).length;
+    this.noteAuto({ id: 'check', name: '延迟检查', mode: 'auto' }, `探测完成：${pending.length - failed} 个可用 / ${failed} 个超时`);
     await this.applyAuto(epoch);
   }
   async switch(sceneId, nodeId, { automatic = false, reconnect = false, temporary = false, alertId = null } = {}) {

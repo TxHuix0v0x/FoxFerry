@@ -32,7 +32,7 @@ const signature = rules => JSON.stringify(rules.map(r => ({ type: r.type, payloa
 class Service {
   constructor(store, { notify = () => {}, demo = false } = {}) {
     this.store = store; this.demo = demo; this.notify = notify; this.status = '尚未接入，请完成首次向导'; this.queue = Promise.resolve(); this.paused = true; this.errors = []; this.discovery = null; this.expected = null; this.tickBusy = false;
-    this.file = path.join(store.dir, 'assistant-owned.yaml'); this.lastObserve = 0; this.lastRefresh = 0;
+    this.file = path.join(store.dir, 'assistant-owned.yaml'); this.runtimeLog = path.join(store.dir, 'runtime.log'); this.lastObserve = 0; this.lastRefresh = 0;
     this.connectionHistory = new ConnectionHistory();
     this.traffic = new TrafficHistory(store.dir); this.switchLog = []; this.lastTrafficFlush = 0;
   }
@@ -41,6 +41,7 @@ class Service {
   async init() {
     await this.store.load();
     await this.traffic.load();
+    try { const stat = await fs.stat(this.runtimeLog); if (stat.size > 512 * 1024) await fs.rename(this.runtimeLog, `${this.runtimeLog}.1`); } catch { /* First run has no log yet. */ }
     if (this.state.setup.needsUpgradeConfirmation) this.status = '数据已升级，原有分流已保留；请在首次接入中重新确认';
     this.journal = path.join(this.store.dir, 'transaction.json');
     try {
@@ -80,7 +81,10 @@ class Service {
       this.serial(() => this.tick()).catch(e => this.fail(e)).finally(() => { this.tickBusy = false; this.scheduleSample(); });
     }, this.state.preferences.sampleInterval);
   }
-  makeScheduler() { if (this.scheduler) { this.scheduler.cancelled = true; this.scheduler.invalidate(); } this.scheduler = new Scheduler({ state: () => this.state, core: this.core, guard: () => this.guard(), persist: s => this.persistSelection(s), notify: a => this.notify(a), serialize: work => this.serial(work), history: this.connectionHistory, traffic: this.traffic, logSwitch: entry => { this.switchLog.push(entry); if (this.switchLog.length > 300) this.switchLog.shift(); } }); }
+  makeScheduler() { if (this.scheduler) { this.scheduler.cancelled = true; this.scheduler.invalidate(); } this.scheduler = new Scheduler({ state: () => this.state, core: this.core, guard: () => this.guard(), persist: s => this.persistSelection(s), notify: a => this.notify(a), serialize: work => this.serial(work), history: this.connectionHistory, traffic: this.traffic, logAuto: entry => this.record('auto', entry), logSwitch: entry => { this.switchLog.push(entry); if (this.switchLog.length > 300) this.switchLog.shift(); } }); }
+  record(kind, value = {}) {
+    try { fs.appendFile(this.runtimeLog, `${JSON.stringify({ at: new Date().toISOString(), kind, ...value })}\n`).catch(() => {}); } catch { /* Diagnostics must never break scheduling. */ }
+  }
   async persistSelection(state) {
     if (this.demo) return this.store.save(state);
     const previousState = JSON.parse(await fs.readFile(this.store.file, 'utf8'));
@@ -104,7 +108,7 @@ class Service {
     }
     try { await fs.rm(this.journal); } catch { this.errors.push({ at: Date.now(), message: '路线已保存，事务标记待重启清理' }); }
   }
-  fail(error) { this.paused = true; this.status = redact(error.message || '运行失败'); clearTimeout(this.timer); this.scheduler?.invalidate(); this.errors = [...this.errors.slice(-9), { at: Date.now(), message: this.status }]; }
+  fail(error) { this.paused = true; this.status = redact(error.message || '运行失败'); this.record('fail', { status: this.status }); clearTimeout(this.timer); this.scheduler?.invalidate(); this.errors = [...this.errors.slice(-9), { at: Date.now(), message: this.status }]; }
   async scan() {
     if (this.demo) return { demo: true, dir: '模拟配置', corePath: '模拟内核', running: true, controller: '模拟接口' };
     this.discovery = await discover(this.state.setup);
@@ -269,14 +273,14 @@ class Service {
   view({ history = true } = {}) {
     const state = { ...this.state };
     state.subscriptions = state.subscriptions.map(s => ({ id: s.id, name: s.name, kind: s.kind, updatedAt: s.updatedAt, error: s.error, metadata: s.metadata, nodes: s.nodes.map(n => ({ id: n.id, name: n.name, subscriptionId: n.subscriptionId, udp: this.capabilities?.[n.id], country: M.country(n), countrySource: n.detectedCountry ? '出口检测' : n.nameCountry ? '名称标注' : '未知', delay: Number.isFinite(this.scheduler?.delays[n.id]) ? this.scheduler.delays[n.id] : null, delayFailed: this.scheduler?.delays[n.id] === Infinity })) }));
-    return { ...state, appVersion, demo: this.demo, paused: this.paused, status: this.status, errors: this.errors, switches: this.switchLog.slice(-100), metrics: this.scheduler?.metrics || {}, subscriptionBytes: this.scheduler?.subscriptionBytes || {}, applicationBytes: this.scheduler?.applicationBytes || {}, ...(history ? { connections: this.connectionHistory.rows } : {}), connectionsUpdatedAt: this.connectionHistory.sampledAt, alerts: this.scheduler?.alerts.filter(a => a.expires > Date.now()) || [], configFile: this.file };
+    return { ...state, appVersion, demo: this.demo, paused: this.paused, status: this.status, errors: this.errors, switches: this.switchLog.slice(-100), autoChecks: this.scheduler?.autoChecks.slice(-60) || [], metrics: this.scheduler?.metrics || {}, subscriptionBytes: this.scheduler?.subscriptionBytes || {}, applicationBytes: this.scheduler?.applicationBytes || {}, ...(history ? { connections: this.connectionHistory.rows } : {}), connectionsUpdatedAt: this.connectionHistory.sampledAt, alerts: this.scheduler?.alerts.filter(a => a.expires > Date.now()) || [], configFile: this.file };
   }
   summary({ revision, overview = true } = {}) {
     const changed = this.viewState !== this.state || this.viewDelays !== this.scheduler?.delayRevision || this.viewCapabilities !== this.capabilities;
     if (changed) { this.viewState = this.state; this.viewDelays = this.scheduler?.delayRevision; this.viewCapabilities = this.capabilities; this.viewRevision = (this.viewRevision || 0) + 1; }
     const result = { revision: this.viewRevision, paused: this.paused, status: this.status };
     if (revision !== this.viewRevision) result.state = this.view({ history: false });
-    if (overview) Object.assign(result, { metrics: this.scheduler?.metrics || {}, subscriptionBytes: this.scheduler?.subscriptionBytes || {}, applicationBytes: this.scheduler?.applicationBytes || {}, errors: this.errors, alerts: this.scheduler?.alerts.filter(a => a.expires > Date.now()) || [] });
+    if (overview) Object.assign(result, { metrics: this.scheduler?.metrics || {}, subscriptionBytes: this.scheduler?.subscriptionBytes || {}, applicationBytes: this.scheduler?.applicationBytes || {}, errors: this.errors, alerts: this.scheduler?.alerts.filter(a => a.expires > Date.now()) || [], autoChecks: this.scheduler?.autoChecks.slice(-20) || [] });
     return result;
   }
   async command(action, value = {}) {
