@@ -96,6 +96,15 @@ test('a manual latency probe applies the same automatic decision as the periodic
   assert.equal(f.log.at(-1).reason, 'auto-country');
   assert.equal(f.writes.length, 1);
 });
+test('a timed-out selected node is replaced even inside the dwell window', async () => {
+  const f = fixture(); const scene = f.state.scenes[0]; const [failed, healthy] = f.state.subscriptions[0].nodes;
+  assert.equal(scene.selected, failed.id);
+  f.scheduler.runtime(scene.id).switched = 0; f.time(1000);
+  f.core.delay = async name => { if (name === nodeName(failed.id)) throw new Error('timeout'); return { delay: 20 }; };
+  await f.scheduler.checkDelays();
+  assert.equal(scene.selected, healthy.id);
+  assert.equal(f.log.at(-1).reason, 'auto-country');
+});
 test('manual selection preserves same-subscription candidate edits and choosing permanent ends acceleration', async () => {
   const f = fixture(); const s = f.state.scenes[0]; s.candidates = [s.selected]; s.countries = ['JP'];
   await f.scheduler.switch(s.id, f.state.subscriptions[0].nodes[1].id); assert.equal(s.candidates.length, 1); assert.deepEqual(s.countries, ['JP']);

@@ -197,7 +197,7 @@ function updateOverview() {
     const s = state.scenes.find(s => s.id === t.sceneId), m = state.metrics[s.id] || {}, node = allNodes().find(n => n.id === s.selected), inherited = !!t.ruleId && s.id === state.defaultSceneId, shared = state.rules.filter(r => r.sceneId === s.id).length > 1;
     const text = (field, value) => { el.querySelector(`[data-field="${field}"]`).textContent = value; };
     text('name',t.name); text('mode',`${!t.ruleId ? '日常默认' : inherited ? '跟随默认线路' : shared ? '共享旧线路' : '独立线路'} · ${s.temporary ? '临时加速' : s.mode === 'auto' ? (s.anyCountry ? '最低延迟自动' : '同国自动') : '手动锁定'} · ${s.anyCountry ? '不限国家' : (s.countryLock || '国家未知')}`);
-    text('subscription',subName(s.subscriptionId)); text('node',`${nodeName(s.selected)} · ${node?.countrySource || '未知'}${node?.delay ? ' · ' + node.delay + 'ms' : ''}${node?.udp === false ? ' · UDP 不支持（拒绝回落）' : ''}`);
+    text('subscription',subName(s.subscriptionId)); text('node',`${nodeName(s.selected)} · ${node?.countrySource || '未知'}${node?.delay ? ' · ' + node.delay + 'ms' : node?.delayFailed ? ' · 超时' : ''}${node?.udp === false ? ' · UDP 不支持（拒绝回落）' : ''}`);
     text('speed',inherited || (t.ruleId && shared) ? '共享线路' : format(m.speed) + '/s'); text('connections',`${m.connections || 0} 条线路连接 · 旧路线 ${m.oldConnections || 0} 条`);
     setHtml(el.querySelector('[data-field="actions"]'), button(t.ruleId ? 'entry-choose' : 'choose','选择路线',`data-id="${t.ruleId || s.id}"`) + (s.temporary && (!t.ruleId || !inherited && !shared) ? button(t.ruleId ? 'entry-restore' : 'restore','恢复',`data-id="${t.ruleId || s.id}"`) : ''));
   });
@@ -293,10 +293,11 @@ function choose(sceneId, alertId, ruleId) {
   const scene=state.scenes.find(s=>s.id===sceneId); if(!scene)throw Error('线路不存在');
   const name=ruleId?state.rules.find(r=>r.id===ruleId)?.name:sceneLabel(sceneId);
   const autoSame=!alertId && scene.mode==='auto' && !scene.anyCountry, autoAny=!alertId && scene.mode==='auto' && !!scene.anyCountry;
-  openModal(`<h2>${esc(name)} · 选择路线</h2><p class="muted">${ruleId?'只修改本条分流；跟随默认或共享旧线路的条目会自动获得独立线路。':'此操作修改该线路，跟随它的分流会一起使用新路线。'}</p><label for="choose-sub">订阅</label><select id="choose-sub">${state.subscriptions.map(s=>option(s.id,s.name,scene.subscriptionId)).join('')}</select><label for="choose-node">节点</label><select id="choose-node"></select><div class="actions choose-actions">${button('choose-probe','查询延迟')}<span id="choose-probe-status" class="muted" role="status"></span></div><label class="switch-row"><span>启用同国自动</span><input id="choose-same" type="checkbox" role="switch" ${autoSame?'checked':''}></label><label><input id="choose-auto" type="checkbox" ${autoAny?'checked':''}>自动最低延迟（不限国家，定时重探）</label><p class="notice">同国自动与自动最低延迟互斥，且节点频繁跳转会让出口 IP 变化，部分网站和应用可能判定为异常登录并封禁账号；下载、上传与登录态也可能中断。</p><label><input id="choose-temp" type="checkbox" ${alertId?'checked':''}>临时加速，空闲后恢复原路线</label><label><input id="choose-reconnect" type="checkbox">切换并重连本条分流${ruleId?'':' / 线路'}</label><p class="notice">两项自动模式都不勾选时，按所选节点手动锁定；临时加速与之互斥。默认只切换后续新连接；定向重连可能短暂停顿，TCP/UDP 与下载续传都可能失败。</p>`, async()=>{
+  openModal(`<h2>${esc(name)} · 选择路线</h2><p class="muted">${ruleId?'只修改本条分流；跟随默认或共享旧线路的条目会自动获得独立线路。':'此操作修改该线路，跟随它的分流会一起使用新路线。'}</p><label for="choose-sub">订阅</label><select id="choose-sub">${state.subscriptions.map(s=>option(s.id,s.name,scene.subscriptionId)).join('')}</select><label for="choose-node">节点</label><select id="choose-node"></select><div class="actions choose-actions">${button('choose-probe','查询延迟')}<span id="choose-probe-status" class="muted" role="status"></span></div><label class="switch-row"><span>启用同国自动（按所选节点的国家）</span><input id="choose-same" type="checkbox" role="switch" ${autoSame?'checked':''}></label><label><input id="choose-auto" type="checkbox" ${autoAny?'checked':''}>自动最低延迟（不限国家，定时重探）</label><p class="notice">同国自动与自动最低延迟互斥，且节点频繁跳转会让出口 IP 变化，部分网站和应用可能判定为异常登录并封禁账号；下载、上传与登录态也可能中断。</p><label><input id="choose-temp" type="checkbox" ${alertId?'checked':''}>临时加速，空闲后恢复原路线</label><label><input id="choose-reconnect" type="checkbox">切换并重连本条分流${ruleId?'':' / 线路'}</label><p class="notice">换节点只会改变同国自动锁定的国家，不会退出已开着的自动模式；两项自动模式都不勾选时，按所选节点手动锁定。临时加速与之互斥。默认只切换后续新连接；定向重连可能短暂停顿，TCP/UDP 与下载续传都可能失败。</p>`, async()=>{
     if($('choose-auto').checked){ await call(ruleId?'switchRoutingEntry':'auto', ruleId?{id:ruleId,operation:'auto',anyCountry:true}:{sceneId,anyCountry:true}); message('已启用自动最低延迟：下一轮探测后会切到延迟最低的节点。'); return; }
     if($('choose-same').checked){
-      const lock=scene.countryLock || allNodes().find(n=>n.id===$('choose-node').value)?.country;
+      const chosen=allNodes().find(n=>n.id===$('choose-node').value);
+      const lock=chosen?.country || scene.countryLock;
       if(!lock) throw Error('同国自动需要已知国家：请选择一个带国家标注的节点，或改用「自动最低延迟」');
       await call(ruleId?'switchRoutingEntry':'auto', ruleId?{id:ruleId,operation:'auto',country:lock}:{sceneId,country:lock});
       message(`已启用同国自动：锁定 ${lock}，只在该国家内选最快节点。`); return;
@@ -305,7 +306,7 @@ function choose(sceneId, alertId, ruleId) {
   });
   const fill=()=>{ if(!$('choose-node'))return; const current=$('choose-node').value||scene.selected; $('choose-node').innerHTML=state.subscriptions.find(s=>s.id===$('choose-sub').value)?.nodes.map(n=>option(n.id,`${n.name} · ${n.country||'未知'} (${n.countrySource}) · ${delayText(n)}`,current)).join('')||'<option value="">没有可用节点</option>'; };
   $('choose-sub').addEventListener('change',()=>{ fill(); $('choose-same').checked=false; $('choose-auto').checked=false; }); ui.chooseFill=fill; fill();
-  $('choose-node').addEventListener('change',()=>{ $('choose-same').checked=false; $('choose-auto').checked=false; });
+  // Changing the node keeps the chosen automatic mode: the node then only selects the country to lock.
   const exclusive=(id,others)=>$(id).addEventListener('change',()=>{ if($(id).checked) for(const other of others) $(other).checked=false; });
   exclusive('choose-auto',['choose-same','choose-temp']); exclusive('choose-same',['choose-auto','choose-temp']); exclusive('choose-temp',['choose-auto','choose-same']);
 }
