@@ -1,4 +1,5 @@
 'use strict';
+const fs=require('node:fs/promises'),path=require('node:path');
 function version(text) {
   const m=/^v?(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-((?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*))*))?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/.exec(text);
   if(!m)throw Error('发布版本号格式无效');return {n:m.slice(1,4).map(BigInt),pre:m[4]?.split('.')};
@@ -18,9 +19,13 @@ function repository(metadata) {
 function releaseUrl(raw,repo) {
   const u=new URL(raw);if(u.origin!=='https://github.com'||u.username||u.password||u.search||u.hash||!u.pathname.startsWith(new URL(repo.url).pathname+'/releases/tag/')||!u.pathname.split('/releases/tag/')[1])throw Error('发布链接不属于本项目');return u.href;
 }
+function assetUrl(raw,repo) {
+  const u=new URL(raw);if(u.protocol!=='https:'||u.hostname!=='github.com'||u.port||u.username||u.password||u.search||u.hash||!u.pathname.startsWith(new URL(repo.url).pathname+'/releases/download/'))throw Error('更新下载链接无效');return u.href;
+}
+const INSTALLER=/^FoxFerry-\d+\.\d+\.\d+-x64-setup\.exe$/;
 function createUpdater(metadata,current,request=fetch) {
-  let pending,lastUrl;
-  async function run(){lastUrl=undefined;try{
+  let pending,lastUrl,download;
+  async function run(){lastUrl=undefined;download=undefined;try{
     const repo=repository(metadata);const response=await request(`https://api.github.com/repos/${repo.slug}/releases/latest`,{headers:{Accept:'application/vnd.github+json','User-Agent':`FoxFerry/${current}`},signal:AbortSignal.timeout(8000),redirect:'error'});
     if(response.status===404)return {status:'unavailable',message:'尚无发布版本或仓库不可访问'};
     if(response.status===429||response.status===403&&(response.headers.get('x-ratelimit-remaining')==='0'||response.headers.get('retry-after')))throw Error('GitHub 请求限流，请稍后重试');
@@ -29,8 +34,29 @@ function createUpdater(metadata,current,request=fetch) {
     const release=JSON.parse(text);if(release.draft||release.prerelease)return {status:'unavailable',message:'尚无稳定发布版本'};
     const latest=release.tag_name;version(latest);if(version(latest).pre)return {status:'unavailable',message:'尚无稳定发布版本'};
     if(compare(latest,current)<=0)return {status:'current',current,latest,message:`已是最新版本（当前 ${current}，稳定版 ${latest}）`};
-    lastUrl=releaseUrl(release.html_url,repo);return {status:'update',current,latest,message:`有新版本：当前 ${current}，最新 ${latest}`};
+    lastUrl=releaseUrl(release.html_url,repo);
+    const candidate=(release.assets||[]).find(asset=>INSTALLER.test(asset?.name||'')&&Number(asset.size)>0);
+    if(candidate)try{download={name:candidate.name,size:Number(candidate.size),url:assetUrl(candidate.browser_download_url,repo)};}catch{download=undefined;}
+    return {status:'update',current,latest,message:`有新版本：当前 ${current}，最新 ${latest}`,downloadable:!!download};
   }catch(error){return {status:'error',message:error.name==='TimeoutError'||error.name==='AbortError'?'网络超时，请稍后重试':error instanceof SyntaxError?'发布响应格式无效，请稍后重试':error instanceof TypeError?'网络连接失败，请检查网络后重试':error.message};}}
-  return {check(){if(!pending)pending=run().finally(()=>{pending=null;});return pending;},repository(){return repository(metadata).url;},release(){if(!lastUrl)throw Error('请先检查并确认有新版本');return releaseUrl(lastUrl,repository(metadata));}};
+  async function downloadTo(dir,{onProgress=()=>{}}={}){
+    const info=await run();
+    if(info.status!=='update'||!download)throw Error('请先检查并确认有可下载的新版本');
+    await fs.mkdir(dir,{recursive:true});
+    const target=path.join(dir,download.name),partial=`${target}.part`;
+    const response=await request(download.url,{headers:{'User-Agent':`FoxFerry/${current}`},signal:AbortSignal.timeout(600000)});
+    if(!response?.ok||!response.body)throw Error(`更新下载失败（HTTP ${response?.status||'未知'}）`);
+    const total=Number(response.headers?.get?.('content-length'))||download.size;
+    const handle=await fs.open(partial,'w');
+    let received=0;
+    try{
+      const reader=response.body.getReader();
+      while(true){const {done,value}=await reader.read();if(done)break;received+=value.length;await handle.write(Buffer.from(value));onProgress(received,total);}
+    }finally{await handle.close();}
+    if(!received||(total&&received!==total)){await fs.rm(partial,{force:true});throw Error('更新下载不完整，请重试');}
+    await fs.rename(partial,target);
+    return {path:target,size:received,name:download.name};
+  }
+  return {check(){if(!pending)pending=run().finally(()=>{pending=null;});return pending;},downloadTo,repository(){return repository(metadata).url;},release(){if(!lastUrl)throw Error('请先检查并确认有新版本');return releaseUrl(lastUrl,repository(metadata));}};
 }
-module.exports={compare,repository,releaseUrl,createUpdater};
+module.exports={compare,repository,releaseUrl,assetUrl,createUpdater};

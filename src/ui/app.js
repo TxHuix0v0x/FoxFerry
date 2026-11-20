@@ -246,7 +246,7 @@ function settings() {
 }
 
 function about() {
-  return `<div class="about-grid"><section class="panel about-brand"><img src="../../assets/fox-logo.png" alt="FoxFerry 狐狸标志"><div><h2>FoxFerry <small class="version-badge">v${esc(state.appVersion)}</small></h2><p>订阅聚合与分流助手</p><p>FoxFerry 采用 MIT 许可证。</p><button id="repository-button" title="项目仓库" aria-label="项目仓库">GitHub 项目仓库 ↗</button></div></section><section class="panel about-updates"><h2>更新</h2><p class="muted">手动检查本项目的稳定版本。</p><button id="updates-button" class="check-now" title="检查更新" aria-label="检查更新"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 7a8 8 0 1 0 1 9M19 2v6h-6" fill="none" stroke="currentColor" stroke-width="2"/></svg>立即检查</button><div id="update-result" class="update-notice" role="status" tabindex="0" hidden><span id="update-text"></span><button id="release-button" hidden>打开发布页面</button></div></section><section class="panel about-support"><h2>支持 FoxFerry</h2><p>FoxFerry 免费开源。<br>在 GitHub 上点星、报告错误、提出想法或赞助，都是很大的支持。</p><div class="actions"><button id="star-button" class="primary">在 GitHub 上点星</button><button id="issues-button">报告问题 · 提出建议</button><button id="sponsor-button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21 3.5 12.5a5.7 5.7 0 0 1 8.5-7.6 5.7 5.7 0 0 1 8.5 7.6Z"/></svg>赞助</button></div></section><section class="panel about-licenses"><h2>许可与第三方声明</h2><p>FoxFerry 采用 MIT 许可证。第三方组件及其署名见「第三方声明」。</p><div class="actions"><button data-license="mit">MIT 许可证</button><button data-license="notice">第三方声明</button></div></section></div>`;
+  return `<div class="about-grid"><section class="panel about-brand"><img src="../../assets/fox-logo.png" alt="FoxFerry 狐狸标志"><div><h2>FoxFerry <small class="version-badge">v${esc(state.appVersion)}</small></h2><p>订阅聚合与分流助手</p><p>FoxFerry 采用 MIT 许可证。</p><button id="repository-button" title="项目仓库" aria-label="项目仓库">GitHub 项目仓库 ↗</button></div></section><section class="panel about-updates"><h2>更新</h2><p class="muted">手动检查本项目的稳定版本。</p><button id="updates-button" class="check-now" title="检查更新" aria-label="检查更新"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 7a8 8 0 1 0 1 9M19 2v6h-6" fill="none" stroke="currentColor" stroke-width="2"/></svg>立即检查</button><div id="update-result" class="update-notice" role="status" tabindex="0" hidden><span id="update-text"></span><button id="update-install-button" class="primary" hidden>立即更新</button><button id="release-button" hidden>打开发布页面</button></div></section><section class="panel about-support"><h2>支持 FoxFerry</h2><p>FoxFerry 免费开源。<br>在 GitHub 上点星、报告错误、提出想法或赞助，都是很大的支持。</p><div class="actions"><button id="star-button" class="primary">在 GitHub 上点星</button><button id="issues-button">报告问题 · 提出建议</button><button id="sponsor-button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 21 3.5 12.5a5.7 5.7 0 0 1 8.5-7.6 5.7 5.7 0 0 1 8.5 7.6Z"/></svg>赞助</button></div></section><section class="panel about-licenses"><h2>许可与第三方声明</h2><p>FoxFerry 采用 MIT 许可证。第三方组件及其署名见「第三方声明」。</p><div class="actions"><button data-license="mit">MIT 许可证</button><button data-license="notice">第三方声明</button></div></section></div>`;
 }
 
 function render() {
@@ -438,10 +438,14 @@ let resizeTimer;
 window.addEventListener('resize', () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(applyBackground,250); });
 call('view').then(async value => { state=value; backgroundDraft={...backgroundDefault,...state.preferences.background}; applyBackground(); await fetchConnections(); render(); await syncVisibility(); }).catch(e=>message(e.message,true));
 
-const updateNotice = new UpdateNotice({request:()=>call('check-updates'),isSettings:()=>page==='about'});
+const updateNotice = new UpdateNotice({request:()=>call('check-updates'),installRequest:()=>call('update-install'),isSettings:()=>page==='about'});
+window.assistant.onUpdateProgress?.(value=>updateNotice.progress(value));
+async function backgroundUpdateCheck(){try{const value=await call('check-updates');if(value?.status==='update'){updateNotice.result=value;updateNotice.paint();}}catch{/* A failed background check stays silent; the About page still offers a manual check. */}}
+setTimeout(backgroundUpdateCheck,8000);setInterval(backgroundUpdateCheck,6*60*60*1000);
 document.addEventListener('click',async event=>{
  const id=event.target.closest('button')?.id;
  if(id==='updates-button'){await updateNotice.check();return;}
+ if(id==='update-install-button'){await updateNotice.startUpdate();return;}
  const linkActions={'repository-button':'open-repository','star-button':'open-repository','sponsor-button':'open-repository','issues-button':'open-issues','release-button':'open-release'};
  if(linkActions[id])try{await call(linkActions[id]);}catch(error){message(error.message,true);}
 });

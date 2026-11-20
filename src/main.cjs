@@ -61,6 +61,18 @@ async function runApp() {
     } else { main.show(); main.focus(); }
   }
   function stateChanged() { if (main && !main.isDestroyed()) main.webContents.send('state-changed'); }
+  // In-app update: download the release installer, then let a detached helper perform a silent
+  // in-place upgrade and relaunch, so this process can quit and release its files first.
+  async function installUpdate() {
+    if (demo || testing) throw Error('演示或测试模式不会安装更新');
+    const file = await updater.downloadTo(path.join(app.getPath('temp'), 'FoxFerry-update'), { onProgress: (received, total) => { if (main && !main.isDestroyed()) main.webContents.send('update-progress', { received, total }); } });
+    if (!path.isAbsolute(file.path) || !/^FoxFerry-\d+\.\d+\.\d+-x64-setup\.exe$/.test(path.basename(file.path))) throw Error('更新文件校验失败');
+    const dir = path.dirname(process.execPath);
+    const command = `timeout /t 2 /nobreak >nul & "${file.path}" --updated /S /D=${dir} & start "" "${process.execPath}"`;
+    spawn(process.env.ComSpec || 'cmd.exe', ['/d', '/s', '/c', command], { detached: true, stdio: 'ignore', windowsHide: true }).unref();
+    setTimeout(() => app.quit(), 500);
+    return { started: true, size: file.size };
+  }
   function trayMenu() {
     const state = service.state, enabled = !service.paused && !!service.core && !!service.scheduler;
     const label = text => String(text).replaceAll('&', '&&');
@@ -186,6 +198,7 @@ async function runApp() {
         return result.canceled ? null : result.filePaths[0];
       }
       if (action === 'check-updates') return updater.check();
+      if (action === 'update-install') return installUpdate();
       if (action === 'open-repository') { await shell.openExternal(updater.repository()); return; }
       if (action === 'open-issues') { await shell.openExternal(updater.repository()+'/issues'); return; }
       if (action === 'open-release') { await shell.openExternal(updater.release()); return; }
