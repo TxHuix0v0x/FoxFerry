@@ -2,6 +2,8 @@
 const { randomUUID } = require('node:crypto');
 const { nodes, candidates, country, group, nodeName } = require('./model.cjs');
 const { ConnectionHistory } = require('./connection-history.cjs');
+// Gap at which a clearly faster node overrides the dwell window.
+const BIG_GAP = 150;
 class Scheduler {
   constructor({ state, core, guard, persist, notify = () => {}, clock = Date.now, serialize = work => work(), history = new ConnectionHistory(), logSwitch = () => {}, logAuto = () => {}, traffic = null }) {
     Object.assign(this, { state, core, guard, persist, notify, clock, serialize, history, logSwitch, logAuto, traffic });
@@ -116,13 +118,15 @@ class Scheduler {
         const mem = this.runtime(scene.id);
         const currentText = Number.isFinite(currentDelay) ? `${currentDelay}ms` : '超时';
         if (best.id === scene.selected) { this.noteAuto(scene, '保持：当前已是最快', { ...detail, current: currentText }); continue; }
-        if (currentDelay !== Infinity) {
-          if (mem.switched !== null && now - mem.switched < state.preferences.dwell) { this.noteAuto(scene, '等待驻留期', { ...detail, current: currentText, best: `${this.delays[best.id]}ms ${best.name}` }); continue; }
-          if (currentDelay - this.delays[best.id] <= state.preferences.tolerance) { this.noteAuto(scene, '保持：差值在容差内', { ...detail, current: currentText, best: `${this.delays[best.id]}ms ${best.name}` }); continue; }
-        }
+        const gap = currentDelay === Infinity ? Infinity : currentDelay - this.delays[best.id];
+        if (gap <= state.preferences.tolerance) { this.noteAuto(scene, '保持：差值在容差内', { ...detail, current: currentText, best: `${this.delays[best.id]}ms ${best.name}` }); continue; }
+        // A clearly faster node wins even inside the dwell window; a marginal gap waits to avoid flapping.
+        const decisive = gap >= BIG_GAP;
+        const waiting = mem.switched !== null && now - mem.switched < state.preferences.dwell;
+        if (waiting && !decisive) { this.noteAuto(scene, '等待驻留期', { ...detail, current: currentText, best: `${this.delays[best.id]}ms ${best.name}` }); continue; }
         try {
           await this.switch(scene.id, best.id, { automatic: true });
-          this.noteAuto(scene, '已切换', { ...detail, current: currentText, to: best.name, reason: currentDelay === Infinity ? '当前节点超时' : '更快节点' });
+          this.noteAuto(scene, '已切换', { ...detail, current: currentText, to: best.name, reason: currentDelay === Infinity ? '当前节点超时' : decisive && waiting ? '明显更快（跳过驻留）' : '更快节点' });
         } catch (error) {
           this.noteAuto(scene, '切换失败', { ...detail, error: String(error?.message || error) });
           throw error;

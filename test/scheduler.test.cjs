@@ -32,6 +32,15 @@ test('automatic scheduling stays in subscription + country, respects manual lock
   await f.scheduler.switch(scene.id, f.state.subscriptions[0].nodes[3].id); assert.equal(scene.mode, 'manual'); assert.equal(scene.countryLock, null);
   f.time(900000); await f.scheduler.checkDelays(); assert.equal(f.writes.length, 3);
 });
+test('a clearly faster node overrides the dwell window while a marginal gap keeps waiting', async () => {
+  const f = fixture(); const scene = f.state.scenes[0];
+  await f.scheduler.checkDelays();
+  assert.equal(scene.selected, f.state.subscriptions[0].nodes[1].id);
+  f.core.delay = async name => ({ delay: name === nodeName(f.state.subscriptions[0].nodes[0].id) ? 1 : 400 });
+  f.time(1000); await f.scheduler.checkDelays();
+  assert.equal(scene.selected, f.state.subscriptions[0].nodes[0].id);
+  assert.ok(f.events.some(e => e.reason === '明显更快（跳过驻留）'));
+});
 test('unknown countries never auto switch; missing range alerts do not cross subscription', async () => {
   const f = fixture(); const scene = f.state.scenes[0]; scene.countryLock = null;
   await f.scheduler.checkDelays(); assert.equal(f.writes.length, 0); assert.equal(f.scheduler.alerts[0].kind, 'unavailable');

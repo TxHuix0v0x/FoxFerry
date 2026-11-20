@@ -204,7 +204,7 @@ function updateOverview() {
   
   updateConnections();
   const checks = (state.autoChecks || []).slice(-12).reverse();
-  setHtml($('auto-rows'), checks.map(c => `<p class="muted">${new Date(c.at).toLocaleTimeString()} · ${esc(c.sceneName)} · ${esc(c.decision)}${c.to ? ` → ${esc(c.to)}` : ''}${c.current ? ` · 当前 ${esc(c.current)}` : ''}${c.best ? ` · 最快 ${esc(c.best)}` : ''}${c.error ? ` · ${esc(c.error)}` : ''}</p>`).join('') || '<p class="muted">还没有自动检查记录；接入后每一轮延迟检查都会写入这里。</p>');
+  setHtml($('auto-rows'), checks.map(c => `<p class="muted">${new Date(c.at).toLocaleTimeString()} · ${esc(c.sceneName)} · ${esc(c.decision)}${c.to ? ` → ${esc(c.to)}` : ''}${c.reason ? ` · ${esc(c.reason)}` : ''}${c.current ? ` · 当前 ${esc(c.current)}` : ''}${c.best ? ` · 最快 ${esc(c.best)}` : ''}${c.error ? ` · ${esc(c.error)}` : ''}</p>`).join('') || '<p class="muted">还没有自动检查记录；接入后每一轮延迟检查都会写入这里。</p>');
   setHtml($('application-rows'), Object.entries(state.applicationBytes).map(([app, bytes]) => `<tr><td>${esc(app)}</td><td>${format(bytes)}</td></tr>`).join('') || '<tr><td colspan="2">暂无采样</td></tr>');
   setHtml($('runtime-errors'), state.errors.length ? '<div class="section-head"><h2>运行提示</h2></div><div class="panel">' + state.errors.map(e => `<p class="muted">${new Date(e.at).toLocaleTimeString()} · ${esc(e.message)}</p>`).join('') + '</div>' : '');
   paintTraffic();
