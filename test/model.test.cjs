@@ -36,3 +36,18 @@ test('reject unsupported format, YAML alias expansion, duplicate keys and unsafe
   const { state: other } = createDemo(); other.rules[0].domains = ['https://example.com']; assert.throws(() => M.compile(other));
   assert.equal(M.countryFromName, undefined);
 });
+test('direct entries compile before line entries without a reject companion', () => {
+  const { state } = createDemo(); const direct = state.rules[0];
+  direct.processes = ['qbittorrent.exe']; direct.processPaths = []; direct.domains = ['example.org']; direct.direct = true;
+  const config = M.compile(state);
+  const rule = 'AND,((PROCESS-NAME,qbittorrent.exe),(DOMAIN-SUFFIX,example.org)),DIRECT';
+  assert.ok(config.rules.includes(rule));
+  assert.ok(!config.rules.includes(rule.replace(',DIRECT', ',REJECT')));
+  const lineRule = config.rules.find(x => /,AS_[a-z]+$/.test(x));
+  assert.ok(config.rules.indexOf(rule) < config.rules.indexOf(lineRule));
+  assert.equal(config.rules.at(-1), 'MATCH,REJECT');
+  const invalid = structuredClone(state); invalid.rules[0].direct = 'yes';
+  assert.throws(() => M.validateState(invalid), /直连标记无效/);
+  direct.direct = false;
+  assert.ok(M.compile(state).rules.includes('AND,((PROCESS-NAME,qbittorrent.exe),(DOMAIN-SUFFIX,example.org)),AS_daily'));
+});

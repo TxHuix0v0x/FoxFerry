@@ -62,6 +62,7 @@ function validateState(s, version = 2) {
   if (s.scenes.length && !s.scenes.some(x => x.id === s.defaultSceneId)) throw Error('必须指定日常线路');
   for (const rule of s.rules) {
     if (!s.scenes.some(x => x.id === rule.sceneId)) throw Error('规则引用的线路不存在');
+    if (rule.direct !== undefined && typeof rule.direct !== 'boolean') throw Error('直连标记无效');
     const paths = version === 1 ? [] : rule.processPaths ?? [];
     if (!Array.isArray(rule.processes) || !Array.isArray(rule.domains) || !Array.isArray(paths) || (!rule.processes.length && !rule.domains.length && !paths.length)) throw Error('分流至少填写应用或网站');
     for (const file of paths) if (typeof file !== 'string' || file.length > 32767 || !path.win32.isAbsolute(file) || !/\.exe$/i.test(file) || /[\r\n\0]/.test(file)) throw Error('应用请填写完整的 Windows .exe 路径');
@@ -109,7 +110,9 @@ function compile(state, base = {}) {
     return { name: group(scene.id), type: 'select', proxies: [...new Set([selected, 'REJECT', ...all.map(n => nodeName(n.id))])] };
   });
   // Mihomo skips unsupported UDP policies; matching rejects prevent falling through to other subscriptions or DIRECT.
-  const rules = [ 'IP-CIDR,127.0.0.0/8,DIRECT,no-resolve', 'IP-CIDR,10.0.0.0/8,DIRECT,no-resolve', 'IP-CIDR,172.16.0.0/12,DIRECT,no-resolve', 'IP-CIDR,192.168.0.0/16,DIRECT,no-resolve', 'IP-CIDR6,::1/128,DIRECT,no-resolve', 'IP-CIDR6,fc00::/7,DIRECT,no-resolve', 'IP-CIDR6,fe80::/10,DIRECT,no-resolve', ...baseDirectRules(base), ...state.rules.filter(r => r.enabled !== false).flatMap(r => [`${expression(r)},${group(r.sceneId)}`, `${expression(r)},REJECT`]), `MATCH,${group(state.defaultSceneId)}`, 'MATCH,REJECT' ];
+  // Direct entries compile before line entries so an exclusion always wins over a route.
+  const enabled = state.rules.filter(r => r.enabled !== false);
+  const rules = [ 'IP-CIDR,127.0.0.0/8,DIRECT,no-resolve', 'IP-CIDR,10.0.0.0/8,DIRECT,no-resolve', 'IP-CIDR,172.16.0.0/12,DIRECT,no-resolve', 'IP-CIDR,192.168.0.0/16,DIRECT,no-resolve', 'IP-CIDR6,::1/128,DIRECT,no-resolve', 'IP-CIDR6,fc00::/7,DIRECT,no-resolve', 'IP-CIDR6,fe80::/10,DIRECT,no-resolve', ...baseDirectRules(base), ...enabled.filter(r => r.direct === true).map(r => `${expression(r)},DIRECT`), ...enabled.filter(r => r.direct !== true).flatMap(r => [`${expression(r)},${group(r.sceneId)}`, `${expression(r)},REJECT`]), `MATCH,${group(state.defaultSceneId)}`, 'MATCH,REJECT' ];
   const directProviders = Object.fromEntries(baseDirectRules(base).filter(r => r.startsWith('RULE-SET,')).map(r => r.split(',')[1]).map(id => { if (!base['rule-providers']?.[id]) throw Error('基础直连规则引用的规则集缺失'); return [id, base['rule-providers'][id]]; }));
   return { 'x-foxferry': { owner: state.owner, version: 1 }, 'find-process-mode': 'always', ...(Object.keys(directProviders).length ? { 'rule-providers': directProviders } : {}), proxies, 'proxy-groups': [{ name: marker(state.owner), type: 'select', hidden: true, proxies: ['REJECT'] }, ...groups], rules: [...new Set(rules)] };
 }

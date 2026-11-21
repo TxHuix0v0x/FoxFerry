@@ -65,3 +65,15 @@ test('failed unified save does not persist a partial rule or independent route',
   try{service=await new Service(new Store(dir),{demo:true}).init();clearInterval(service.timer);const before=JSON.stringify(service.state);service.store.save=async()=>{throw Error('disk full');};await assert.rejects(()=>service.command('saveRoutingEntry',input({route:{mode:'custom'}})));assert.equal(JSON.stringify(service.state),before);}
   finally{await service?.close();await fs.rm(dir,{recursive:true,force:true});}
 });
+test('direct entries need no route, keep their scene reference and can return to a route', () => {
+  const { state } = createDemo();
+  R.saveEntry(state, { name: '下载直连', processes: ['qbittorrent.exe'], domains: [], direct: true });
+  const added = state.rules.at(-1);
+  assert.equal(added.direct, true); assert.equal(added.sceneId, state.defaultSceneId);
+  const first = state.rules[0]; R.saveEntry(state, { ...first, direct: true });
+  assert.equal(first.direct, true); assert.ok(state.scenes.some(s => s.id === first.sceneId));
+  R.saveEntry(state, { ...first, direct: false, route: { mode: 'default' } });
+  assert.equal(first.direct, undefined); assert.equal(first.sceneId, state.defaultSceneId);
+  const invalid = { ...first, direct: 'yes' };
+  assert.throws(() => R.saveEntry(state, invalid), /直连标记无效/);
+});
