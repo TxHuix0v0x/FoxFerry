@@ -59,4 +59,15 @@ function createUpdater(metadata,current,request=fetch) {
   }
   return {check(){if(!pending)pending=run().finally(()=>{pending=null;});return pending;},downloadTo,repository(){return repository(metadata).url;},release(){if(!lastUrl)throw Error('请先检查并确认有新版本');return releaseUrl(lastUrl,repository(metadata));}};
 }
-module.exports={compare,repository,releaseUrl,assetUrl,createUpdater};
+async function cleanupInstallers(dir,current){
+  let names=[];try{names=await fs.readdir(dir);}catch{return [];}
+  const removed=[];
+  for(const name of names){
+    const match=/^FoxFerry-(\d+\.\d+\.\d+)-x64-setup\.exe$/.exec(name);
+    try{
+      if(name.endsWith('.part')||(match&&compare(current,match[1])>=0)){await fs.rm(path.join(dir,name),{force:true});removed.push(name);}
+    }catch{/* Locked or missing files are retried on the next start. */}
+  }
+  return removed;
+}
+module.exports={compare,repository,releaseUrl,assetUrl,createUpdater,cleanupInstallers};

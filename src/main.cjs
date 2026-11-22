@@ -14,7 +14,8 @@ const { HostGate } = require('./host.cjs');
 const { acceptProcesses } = require('./discovery.cjs');
 const { watcherPipe } = require('./watcher.cjs');
 const sockets = require('node:net');
-const updater = require('./updates.cjs').createUpdater(require('../package.json'), require('../package.json').version);
+const { createUpdater, compare, cleanupInstallers } = require('./updates.cjs');
+const updater = createUpdater(require('../package.json'), require('../package.json').version);
 const taskbarAppId = 'local.foxferry.desktop';
 const demo = process.argv.includes('--demo');
 const testing = process.argv.includes('--test-mode');
@@ -61,17 +62,21 @@ async function runApp() {
     } else { main.show(); main.focus(); }
   }
   function stateChanged() { if (main && !main.isDestroyed()) main.webContents.send('state-changed'); }
-  // In-app update: download the release installer, then let a detached helper perform a silent
-  // in-place upgrade and relaunch, so this process can quit and release its files first.
+  // In-app update: download the release installer, then launch the normal installer UI after this
+  // process quits so its files are not locked. A hidden helper avoids a console window flash.
   async function installUpdate() {
     if (demo || testing) throw Error('演示或测试模式不会安装更新');
     const file = await updater.downloadTo(path.join(app.getPath('temp'), 'FoxFerry-update'), { onProgress: (received, total) => { if (main && !main.isDestroyed()) main.webContents.send('update-progress', { received, total }); } });
     if (!path.isAbsolute(file.path) || !/^FoxFerry-\d+\.\d+\.\d+-x64-setup\.exe$/.test(path.basename(file.path))) throw Error('更新文件校验失败');
-    const dir = path.dirname(process.execPath);
-    const command = `timeout /t 2 /nobreak >nul & "${file.path}" --updated /S /D=${dir} & start "" "${process.execPath}"`;
-    spawn(process.env.ComSpec || 'cmd.exe', ['/d', '/s', '/c', command], { detached: true, stdio: 'ignore', windowsHide: true }).unref();
-    setTimeout(() => app.quit(), 500);
+    const starter = `Start-Sleep -Milliseconds 2500; Start-Process -FilePath "${file.path.replaceAll('"', '')}" -ArgumentList '--updated'`;
+    spawn('powershell.exe', ['-NoLogo', '-NoProfile', '-NonInteractive', '-WindowStyle', 'Hidden', '-Command', starter], { detached: true, stdio: 'ignore', windowsHide: true }).unref();
+    setTimeout(() => app.quit(), 600);
     return { started: true, size: file.size };
+  }
+  // Remove downloaded installers once their version is running; failed downloads and newer
+  // packages stay so the user can retry or install them later.
+  async function cleanUpdateFiles() {
+    await cleanupInstallers(path.join(app.getPath('temp'), 'FoxFerry-update'), app.getVersion());
   }
   function trayMenu() {
     const state = service.state, enabled = !service.paused && !!service.core && !!service.scheduler;
@@ -145,6 +150,7 @@ async function runApp() {
     service = await new Service(new Store(dataDir), { demo, notify: alert => {
       if (Notification.isSupported() && !testing) { const notice = new Notification({ title: 'FoxFerry · 调度提醒', body: `${service.state.scenes.find(s => s.id === alert.sceneId)?.name}：${alert.message}` }); notice.on('click', showMain); notice.show(); }
     } }).init();
+    cleanUpdateFiles().catch(() => {});
     if (testing) global.__assistantTest = { get service() { return service; }, get main() { return main; }, get tray() { return tray; } };
     ipcMain.handle('assistant', async (event, action, value) => {
       const file = event.senderFrame?.url;

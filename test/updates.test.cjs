@@ -1,6 +1,6 @@
 'use strict';
 const {test}=require('node:test'),assert=require('node:assert/strict'),http=require('node:http'),os=require('node:os'),fs=require('node:fs/promises'),path=require('node:path');
-const {compare,repository,releaseUrl,assetUrl,createUpdater}=require('../src/updates.cjs');
+const {compare,repository,releaseUrl,assetUrl,createUpdater,cleanupInstallers}=require('../src/updates.cjs');
 const metadata={repository:'https://github.com/test-fixture/foxferry-test'};
 test('semantic comparison and restricted URLs',()=>{
   assert.equal(compare('v0.2.10','0.2.9'),1);assert.equal(compare('0.2.4-beta.2','0.2.4-beta.10'),-1);assert.equal(compare('0.2.4','0.2.4-beta.1'),1);
@@ -33,6 +33,19 @@ test('in-app download stores the installer, reports progress and rejects foreign
     assert.equal(checked.downloadable,false);
     await assert.rejects(()=>createUpdater(metadata,'0.2.10',request).downloadTo(dir),/请先检查/);
   }finally{await new Promise(r=>server.close(r));await fs.rm(dir,{recursive:true,force:true});}
+});
+
+test('pending installers are removed once their version is running', async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'ff-clean-'));
+  try {
+    for (const name of ['FoxFerry-0.3.2-x64-setup.exe', 'FoxFerry-0.3.3-x64-setup.exe', 'partial.part', 'notes.txt']) await fs.writeFile(path.join(dir, name), 'x');
+    const removed = await cleanupInstallers(dir, '0.3.3');
+    assert.deepEqual(removed.sort(), ['FoxFerry-0.3.2-x64-setup.exe', 'FoxFerry-0.3.3-x64-setup.exe', 'partial.part'].sort());
+    assert.deepEqual((await fs.readdir(dir)).sort(), ['notes.txt']);
+    await fs.writeFile(path.join(dir, 'FoxFerry-0.3.4-x64-setup.exe'), 'x');
+    assert.deepEqual(await cleanupInstallers(dir, '0.3.3'), []);
+    assert.ok((await fs.readdir(dir)).includes('FoxFerry-0.3.4-x64-setup.exe'));
+  } finally { await fs.rm(dir, { recursive: true, force: true }); }
 });
 
 test('local HTTP: update, no downgrade, drafts, missing, limits, offline, timeout, deduplication',async()=>{
