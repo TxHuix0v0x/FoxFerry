@@ -40,7 +40,7 @@ test('direct entries compile before line entries without a reject companion', ()
   const { state } = createDemo(); const direct = state.rules[0];
   direct.processes = ['qbittorrent.exe']; direct.processPaths = []; direct.domains = ['example.org']; direct.direct = true;
   const config = M.compile(state);
-  const rule = 'AND,((PROCESS-NAME,qbittorrent.exe),(DOMAIN-SUFFIX,example.org)),DIRECT';
+  const rule = 'OR,((PROCESS-NAME,qbittorrent.exe),(DOMAIN-SUFFIX,example.org)),DIRECT';
   assert.ok(config.rules.includes(rule));
   assert.ok(!config.rules.includes(rule.replace(',DIRECT', ',REJECT')));
   const lineRule = config.rules.find(x => /,AS_[a-z]+$/.test(x));

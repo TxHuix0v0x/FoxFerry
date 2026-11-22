@@ -87,10 +87,14 @@ function upgradeState(value) {
   return validateState(next);
 }
 function pathPattern(file) { return '^' + file.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replaceAll('\\(', '\\x28').replaceAll('\\)', '\\x29').replaceAll(',', '\\x2c') + '$'; }
-function expression(rule) {
+function expression(rule, mode = 'and') {
   const combine = (type, values) => values.length === 1 ? `${type},${values[0]}` : `OR,(${values.map(v => `(${type},${v})`).join(',')})`;
-  const parts = [];
   const apps = [...rule.processes.map(p => `PROCESS-NAME,${p}`), ...(rule.processPaths || []).map(p => `PROCESS-PATH-REGEX,${pathPattern(p)}`)];
+  if (mode === 'or') {
+    const parts = [...apps, ...rule.domains.map(domain => `DOMAIN-SUFFIX,${domain.toLowerCase()}`)];
+    return parts.length === 1 ? parts[0] : `OR,(${parts.map(x => `(${x})`).join(',')})`;
+  }
+  const parts = [];
   if (apps.length) parts.push(apps.length === 1 ? apps[0] : `OR,(${apps.map(p => `(${p})`).join(',')})`);
   if (rule.domains.length) parts.push(combine('DOMAIN-SUFFIX', rule.domains.map(x => x.toLowerCase())));
   return parts.length === 1 ? parts[0] : `AND,(${parts.map(x => `(${x})`).join(',')})`;
@@ -112,7 +116,7 @@ function compile(state, base = {}) {
   // Mihomo skips unsupported UDP policies; matching rejects prevent falling through to other subscriptions or DIRECT.
   // Direct entries compile before line entries so an exclusion always wins over a route.
   const enabled = state.rules.filter(r => r.enabled !== false);
-  const rules = [ 'IP-CIDR,127.0.0.0/8,DIRECT,no-resolve', 'IP-CIDR,10.0.0.0/8,DIRECT,no-resolve', 'IP-CIDR,172.16.0.0/12,DIRECT,no-resolve', 'IP-CIDR,192.168.0.0/16,DIRECT,no-resolve', 'IP-CIDR6,::1/128,DIRECT,no-resolve', 'IP-CIDR6,fc00::/7,DIRECT,no-resolve', 'IP-CIDR6,fe80::/10,DIRECT,no-resolve', ...baseDirectRules(base), ...enabled.filter(r => r.direct === true).map(r => `${expression(r)},DIRECT`), ...enabled.filter(r => r.direct !== true).flatMap(r => [`${expression(r)},${group(r.sceneId)}`, `${expression(r)},REJECT`]), `MATCH,${group(state.defaultSceneId)}`, 'MATCH,REJECT' ];
+  const rules = [ 'IP-CIDR,127.0.0.0/8,DIRECT,no-resolve', 'IP-CIDR,10.0.0.0/8,DIRECT,no-resolve', 'IP-CIDR,172.16.0.0/12,DIRECT,no-resolve', 'IP-CIDR,192.168.0.0/16,DIRECT,no-resolve', 'IP-CIDR6,::1/128,DIRECT,no-resolve', 'IP-CIDR6,fc00::/7,DIRECT,no-resolve', 'IP-CIDR6,fe80::/10,DIRECT,no-resolve', ...baseDirectRules(base), ...enabled.filter(r => r.direct === true).map(r => `${expression(r, 'or')},DIRECT`), ...enabled.filter(r => r.direct !== true).flatMap(r => [`${expression(r)},${group(r.sceneId)}`, `${expression(r)},REJECT`]), `MATCH,${group(state.defaultSceneId)}`, 'MATCH,REJECT' ];
   const directProviders = Object.fromEntries(baseDirectRules(base).filter(r => r.startsWith('RULE-SET,')).map(r => r.split(',')[1]).map(id => { if (!base['rule-providers']?.[id]) throw Error('基础直连规则引用的规则集缺失'); return [id, base['rule-providers'][id]]; }));
   return { 'x-foxferry': { owner: state.owner, version: 1 }, 'find-process-mode': 'always', ...(Object.keys(directProviders).length ? { 'rule-providers': directProviders } : {}), proxies, 'proxy-groups': [{ name: marker(state.owner), type: 'select', hidden: true, proxies: ['REJECT'] }, ...groups], rules: [...new Set(rules)] };
 }
