@@ -243,6 +243,11 @@ class Service {
     const { proxies } = await this.core.proxies(); const next = structuredClone(this.state);
     for (const s of next.scenes) { const active = M.nodes(next).find(n => M.nodeName(n.id) === proxies[M.group(s.id)]?.now); if (active) { s.selected = active.id; s.subscriptionId = active.subscriptionId; s.countryLock = M.country(active); } else s.selected = null; }
     next.setup.ready = true; delete next.setup.needsUpgradeConfirmation; await this.store.save(next); this.makeScheduler(); this.paused = false; this.status = '调度运行中';
+    // Re-apply automatically when the compiled profile is stale (e.g. after an app upgrade changed the compiler).
+    try {
+      const generated = M.compile(next, this.discovery.config);
+      if (!this.expected || M.routingFingerprint(generated) !== M.routingFingerprint(this.expected)) await this.commit(next);
+    } catch (error) { this.errors = [...this.errors.slice(-9), { at: Date.now(), message: `重新应用配置失败：${redact(error.message)}` }]; }
   }
   async checkKernel(force) {
     if (this.demo || (this.kernelChecked && !force && Date.now() - this.kernelChecked < 10000)) return;

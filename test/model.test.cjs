@@ -36,6 +36,17 @@ test('reject unsupported format, YAML alias expansion, duplicate keys and unsafe
   const { state: other } = createDemo(); other.rules[0].domains = ['https://example.com']; assert.throws(() => M.compile(other));
   assert.equal(M.countryFromName, undefined);
 });
+test('app rules cover the containing folder by default and can be narrowed to the exact exe', () => {
+  const base = { processes: [], domains: [], processPaths: ['C:\\Program Files\\Demo\\demo.exe'] };
+  const wide = M.expression(base);
+  assert.ok(wide.includes(String.raw`PROCESS-PATH-REGEX,^C:\\Program Files\\Demo\\`), wide);
+  assert.ok(wide.includes(String.raw`PROCESS-PATH-REGEX,^C:\\Program Files\\Demo\\demo\.exe$`));
+  const narrow = M.expression({ ...base, includeDir: false });
+  assert.equal(wide.split('PROCESS-PATH-REGEX,').length - 1, 2);
+  assert.equal(narrow.split('PROCESS-PATH-REGEX,').length - 1, 1);
+  const invalid = structuredClone(createDemo().state); invalid.rules[0].includeDir = 'yes';
+  assert.throws(() => M.validateState(invalid), /目录匹配标记无效/);
+});
 test('direct entries compile before line entries without a reject companion', () => {
   const { state } = createDemo(); const direct = state.rules[0];
   direct.processes = ['qbittorrent.exe']; direct.processPaths = []; direct.domains = ['example.org']; direct.direct = true;

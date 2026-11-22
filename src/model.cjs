@@ -63,6 +63,7 @@ function validateState(s, version = 2) {
   for (const rule of s.rules) {
     if (!s.scenes.some(x => x.id === rule.sceneId)) throw Error('规则引用的线路不存在');
     if (rule.direct !== undefined && typeof rule.direct !== 'boolean') throw Error('直连标记无效');
+    if (rule.includeDir !== undefined && typeof rule.includeDir !== 'boolean') throw Error('目录匹配标记无效');
     const paths = version === 1 ? [] : rule.processPaths ?? [];
     if (!Array.isArray(rule.processes) || !Array.isArray(rule.domains) || !Array.isArray(paths) || (!rule.processes.length && !rule.domains.length && !paths.length)) throw Error('分流至少填写应用或网站');
     for (const file of paths) if (typeof file !== 'string' || file.length > 32767 || !path.win32.isAbsolute(file) || !/\.exe$/i.test(file) || /[\r\n\0]/.test(file)) throw Error('应用请填写完整的 Windows .exe 路径');
@@ -86,10 +87,13 @@ function upgradeState(value) {
   next.setup.needsUpgradeConfirmation = true;
   return validateState(next);
 }
-function pathPattern(file) { return '^' + file.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replaceAll('\\(', '\\x28').replaceAll('\\)', '\\x29').replaceAll(',', '\\x2c') + '$'; }
+const escapePath = value => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replaceAll('\\(', '\\x28').replaceAll('\\)', '\\x29').replaceAll(',', '\\x2c');
+function pathPattern(file) { return '^' + escapePath(file) + '$'; }
+function dirPattern(dir) { return '^' + escapePath(dir) + '\\\\'; }
 function expression(rule, mode = 'and') {
   const combine = (type, values) => values.length === 1 ? `${type},${values[0]}` : `OR,(${values.map(v => `(${type},${v})`).join(',')})`;
-  const apps = [...rule.processes.map(p => `PROCESS-NAME,${p}`), ...(rule.processPaths || []).map(p => `PROCESS-PATH-REGEX,${pathPattern(p)}`)];
+  const dirs = [...new Set((rule.processPaths || []).map(p => path.dirname(p)))];
+  const apps = [...rule.processes.map(p => `PROCESS-NAME,${p}`), ...(rule.processPaths || []).map(p => `PROCESS-PATH-REGEX,${pathPattern(p)}`), ...(rule.includeDir === false ? [] : dirs.map(dir => `PROCESS-PATH-REGEX,${dirPattern(dir)}`))];
   if (mode === 'or') {
     const parts = [...apps, ...rule.domains.map(domain => `DOMAIN-SUFFIX,${domain.toLowerCase()}`)];
     return parts.length === 1 ? parts[0] : `OR,(${parts.map(x => `(${x})`).join(',')})`;
