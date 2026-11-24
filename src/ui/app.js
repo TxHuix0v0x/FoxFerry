@@ -296,7 +296,7 @@ function editEntry(id) {
   $('entry-domains').addEventListener('input',()=>{ if(!$('entry-name').value)$('entry-name').value=$('entry-domains').value.trim().split('\n')[0]; });
 }
 function choose(sceneId, alertId, ruleId) {
-  const scene=state.scenes.find(s=>s.id===sceneId); if(!scene)throw Error('线路不存在');
+  const scene=state.scenes.find(s=>s.id===sceneId); if(!scene)throw Error('线路不存在'); ui.chooseScene=scene.id;
   const name=ruleId?state.rules.find(r=>r.id===ruleId)?.name:sceneLabel(sceneId);
   const autoSame=!alertId && scene.mode==='auto' && !scene.anyCountry, autoAny=!alertId && scene.mode==='auto' && !!scene.anyCountry;
   openModal(`<h2>${esc(name)} · 选择路线</h2><p class="muted">${ruleId?'只修改本条分流；跟随默认或共享旧线路的条目会自动获得独立线路。':'此操作修改该线路，跟随它的分流会一起使用新路线。'}</p><label for="choose-sub">订阅</label><select id="choose-sub">${state.subscriptions.map(s=>option(s.id,s.name,scene.subscriptionId)).join('')}</select><label for="choose-node">节点</label><select id="choose-node"></select><div class="actions choose-actions">${button('choose-probe','查询延迟')}<span id="choose-probe-status" class="muted" role="status"></span></div><label class="switch-row"><span>启用同国自动（按所选节点的国家）</span><input id="choose-same" type="checkbox" role="switch" ${autoSame?'checked':''}></label><label><input id="choose-auto" type="checkbox" ${autoAny?'checked':''}>自动最低延迟（不限国家，定时重探）</label><p class="notice">同国自动与自动最低延迟互斥，且节点频繁跳转会让出口 IP 变化，部分网站和应用可能判定为异常登录并封禁账号；下载、上传与登录态也可能中断。</p><label><input id="choose-temp" type="checkbox" ${alertId?'checked':''}>临时加速，空闲后恢复原路线</label><label><input id="choose-reconnect" type="checkbox">切换并重连本条分流${ruleId?'':' / 线路'}</label><p class="notice">换节点只会改变同国自动锁定的国家，不会退出已开着的自动模式；两项自动模式都不勾选时，按所选节点手动锁定。临时加速与之互斥。默认只切换后续新连接；定向重连可能短暂停顿，TCP/UDP 与下载续传都可能失败。</p>`, async()=>{
@@ -310,7 +310,7 @@ function choose(sceneId, alertId, ruleId) {
     }
     const value={nodeId:$('choose-node').value,temporary:$('choose-temp').checked,reconnect:$('choose-reconnect').checked,alertId:alertId||null}; const result=await call(ruleId?'switchRoutingEntry':'switch',ruleId?{...value,id:ruleId}:{...value,sceneId}); if(result?.warning)message(result.warning);
   });
-  const fill=()=>{ if(!$('choose-node'))return; const current=$('choose-node').value||scene.selected; $('choose-node').innerHTML=state.subscriptions.find(s=>s.id===$('choose-sub').value)?.nodes.map(n=>option(n.id,`${n.name} · ${n.country||'未知'} (${n.countrySource}) · ${delayText(n)}`,current)).join('')||'<option value="">没有可用节点</option>'; };
+  const fill=()=>{ if(!$('choose-node'))return; const live=state.scenes.find(s=>s.id===scene.id)||scene; const current=$('choose-node').value||live.selected; $('choose-node').innerHTML=state.subscriptions.find(s=>s.id===$('choose-sub').value)?.nodes.map(n=>option(n.id,`${n.name} · ${n.country||'未知'} (${n.countrySource}) · ${delayText(n)}`,current)).join('')||'<option value="">没有可用节点</option>'; };
   $('choose-sub').addEventListener('change',()=>{ fill(); $('choose-same').checked=false; $('choose-auto').checked=false; }); ui.chooseFill=fill; fill();
   // Changing the node keeps the chosen automatic mode: the node then only selects the country to lock.
   const exclusive=(id,others)=>$(id).addEventListener('change',()=>{ if($(id).checked) for(const other of others) $(other).checked=false; });
@@ -365,7 +365,7 @@ async function act(action,el) {
       const list=state.subscriptions.find(s=>s.id===$('choose-sub')?.value)?.nodes||[], label=$('choose-probe-status');
       if(!list.length)throw Error('该订阅没有可用节点');
       if(label)label.textContent=`正在查询 ${list.length} 个节点…`;
-      try { await call('probeDelays',{ids:list.map(n=>n.id)}); ui.chooseFill?.(); if(label)label.textContent='延迟已更新'; }
+      try { const before=state.scenes.find(s=>s.id===ui.chooseScene)?.selected; await call('probeDelays',{ids:list.map(n=>n.id)}); const after=state.scenes.find(s=>s.id===ui.chooseScene)?.selected; if(after&&after!==before)$('choose-node').value=after; ui.chooseFill?.(); if(label)label.textContent=after&&after!==before?'已自动切换到该节点':'延迟已更新'; }
       catch(error){ if(label)label.textContent=`查询失败：${error.message}`; }
       break;
     }
