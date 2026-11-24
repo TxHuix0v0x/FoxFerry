@@ -62,15 +62,18 @@ async function runApp() {
     } else { main.show(); main.focus(); }
   }
   function stateChanged() { if (main && !main.isDestroyed()) main.webContents.send('state-changed'); }
-  // In-app update: download the release installer, then hand it to the Windows shell so it keeps
-  // running after FoxFerry quits (a spawned helper would die with this process).
+  // In-app update: close first so the installer's "app is running" check cannot fail, then hand
+  // the file to the Windows shell (it keeps running after us), then exit immediately.
   async function installUpdate() {
     if (demo || testing) throw Error('演示或测试模式不会安装更新');
     const file = await updater.downloadTo(path.join(app.getPath('temp'), 'FoxFerry-update'), { onProgress: (received, total) => { if (main && !main.isDestroyed()) main.webContents.send('update-progress', { received, total }); } });
     if (!path.isAbsolute(file.path) || !/^FoxFerry-\d+\.\d+\.\d+-x64-setup\.exe$/.test(path.basename(file.path))) throw Error('更新文件校验失败');
+    quitting = true;
+    await service.close().catch(() => {});
     const failure = await shell.openPath(file.path);
     if (failure) throw Error(`无法打开安装程序：${failure}`);
-    setTimeout(() => app.quit(), 1500);
+    closing = true;
+    setTimeout(() => app.quit(), 150);
     return { started: true, size: file.size };
   }
   // Remove downloaded installers once their version is running; failed downloads and newer
