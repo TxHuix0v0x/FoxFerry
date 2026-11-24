@@ -69,6 +69,9 @@ async function runApp() {
     const file = await updater.downloadTo(path.join(app.getPath('temp'), 'FoxFerry-update'), { onProgress: (received, total) => { if (main && !main.isDestroyed()) main.webContents.send('update-progress', { received, total }); } });
     if (!path.isAbsolute(file.path) || !/^FoxFerry-\d+\.\d+\.\d+-x64-setup\.exe$/.test(path.basename(file.path))) throw Error('更新文件校验失败');
     quitting = true;
+    clearTimeout(hostTimer);
+    hostSocket?.destroy(); hostSocket = null;
+    await stopWatcher(dataDir).catch(() => {});
     await service.close().catch(() => {});
     const failure = await shell.openPath(file.path);
     if (failure) throw Error(`无法打开安装程序：${failure}`);
