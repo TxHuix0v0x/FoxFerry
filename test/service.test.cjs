@@ -4,11 +4,25 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const os = require('node:os');
-const { Service, ruleSignature } = require('../src/service.cjs');
+const { Service, kernelStampSafe, ruleSignature } = require('../src/service.cjs');
 const { Store, atomicWrite } = require('../src/store.cjs');
 const { createDemo } = require('../src/simulation.cjs');
 const M = require('../src/model.cjs');
 const { selectedAssistant, vergeSubscriptions } = require('../src/discovery.cjs');
+test('a failed process snapshot never pauses scheduling, and shutdown is bounded', async () => {
+  assert.equal(await kernelStampSafe(async () => { throw Object.assign(Error('timeout'), { code: 'EPROCESS' }); }), undefined);
+  await assert.rejects(() => kernelStampSafe(async () => { throw Error('boom'); }), /boom/);
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'assistant-close-'));
+  let service;
+  try {
+    service = await new Service(new Store(dir), { demo: true }).init();
+    service.delayJob = new Promise(() => {});
+    service.queue = new Promise(() => {});
+    const started = Date.now();
+    await service.close();
+    assert.ok(Date.now() - started < 5000, 'shutdown waits at most about two seconds per stage');
+  } finally { await service?.close(); await fs.rm(dir, { recursive: true, force: true }); }
+});
 test('nested AND/OR rule signatures follow actual Mihomo normalized API shape', () => {
   const rules = ['AND,((OR,((PROCESS-NAME,chrome.exe),(PROCESS-NAME,msedge.exe))),(OR,((DOMAIN-SUFFIX,a.test),(DOMAIN-SUFFIX,b.test)))),AS_daily'];
   assert.deepEqual(ruleSignature({ rules }), [{ type: 'AND', payload: '((OR,((ProcessName,chrome.exe) || (ProcessName,msedge.exe))) && (OR,((DomainSuffix,a.test) || (DomainSuffix,b.test))))', proxy: 'AS_daily' }]);

@@ -29,6 +29,11 @@ function ruleSignature(config) {
   });
 }
 const signature = rules => JSON.stringify(rules.map(r => ({ type: r.type, payload: r.payload, proxy: r.proxy })));
+// A transient PowerShell/WMI failure while reading the process list must never pause scheduling;
+// the kernel identity is only used to notice a restart, so an unknown stamp simply skips the check.
+async function kernelStampSafe(identity) {
+  try { return await identity(); } catch (error) { if (error.code === 'EPROCESS') return undefined; throw error; }
+}
 class Service {
   constructor(store, { notify = () => {}, demo = false } = {}) {
     this.store = store; this.demo = demo; this.notify = notify; this.status = '尚未接入，请完成首次向导'; this.queue = Promise.resolve(); this.paused = true; this.errors = []; this.discovery = null; this.expected = null; this.tickBusy = false;
@@ -232,12 +237,18 @@ class Service {
   }
   async attach() {
     if (this.demo) return;
-    await this.scan();
+    // The process snapshot can time out on a busy machine; retry briefly before surfacing it.
+    for (let attempt = 0; ; attempt++) {
+      try { await this.scan(); break; } catch (error) {
+        if (error.code !== 'EPROCESS' || attempt >= 2) throw error;
+        await new Promise(resolve => setTimeout(resolve, 1500 * (attempt + 1)));
+      }
+    }
     if (!this.discovery.controller) throw Error(this.discovery.controllerError || '未发现内核控制接口');
     const expected = M.yaml(await fs.readFile(this.file, 'utf8'));
     if (ownerOf(expected) !== this.state.owner) throw Error('专用配置归属不符');
     if (!await selectedAssistant(this.discovery.dir, this.state.owner, this.file)) throw Error('请先在 Verge 中导入并启用专用本地配置');
-    this.core = new Core(this.discovery.controller); this.expected = expected; this.kernelStamp = await kernelIdentity(); this.kernelChecked = Date.now();
+    this.core = new Core(this.discovery.controller); this.expected = expected; this.kernelStamp = await kernelStampSafe(kernelIdentity); this.kernelChecked = Date.now();
     await this.verify(expected);
     // First attach adopts only nodes already selected inside the explicitly activated assistant profile.
     const { proxies } = await this.core.proxies(); const next = structuredClone(this.state);
@@ -251,7 +262,8 @@ class Service {
   }
   async checkKernel(force) {
     if (this.demo || (this.kernelChecked && !force && Date.now() - this.kernelChecked < 10000)) return;
-    const stamp = await kernelIdentity(force); this.kernelChecked = Date.now();
+    const stamp = await kernelStampSafe(() => kernelIdentity(force)); this.kernelChecked = Date.now();
+    if (stamp === undefined) return;
     if (this.kernelStamp !== undefined && stamp !== this.kernelStamp) { this.scheduler?.invalidate(); this.fail(Error('检测到内核重启，旧提醒已失效；请重新确认接入')); throw Error(this.status); }
     this.kernelStamp = stamp;
   }
@@ -379,6 +391,13 @@ class Service {
     for (const s of next.scenes) if (s.selected === nodeId && s.countryLock !== detected) s.mode = 'manual';
     await this.store.save(next); this.scheduler?.invalidate(); return { country: detected };
   }
-  async close() { this.closed = true; clearTimeout(this.timer); if (this.scheduler) this.scheduler.cancelled = true; await this.delayJob; await this.queue; await this.store.queue; await this.traffic.flush().catch(() => {}); this.connectionHistory.clear(); }
+  async close() {
+    this.closed = true; clearTimeout(this.timer); if (this.scheduler) this.scheduler.cancelled = true;
+    // Shutdown must not wait for an in-flight latency check or a queued command; anything still
+    // running is abandoned when the process exits. Two seconds per stage keeps quitting snappy.
+    const bounded = (work, ms = 2000) => Promise.race([Promise.resolve(work).catch(() => {}), new Promise(resolve => setTimeout(resolve, ms))]);
+    await bounded(this.delayJob); await bounded(this.queue); await bounded(this.store.queue); await bounded(this.traffic.flush());
+    this.connectionHistory.clear();
+  }
 }
-module.exports = { Service, ruleSignature, signature };
+module.exports = { Service, kernelStampSafe, ruleSignature, signature };
