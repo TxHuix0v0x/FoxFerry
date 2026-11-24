@@ -5,7 +5,7 @@ const fs=require('node:fs/promises'),path=require('node:path'),assert=require('n
  const exe=process.env.APP_EXE||path.join(root,'release/win-unpacked/FoxFerry.exe');
  const app=await electron.launch({executablePath:exe,args:['--demo','--test-mode',`--data-dir=${dir}`],env});
  try{
-  assert.equal(await app.evaluate(({app})=>app.getVersion()),'0.3.4');
+  assert.equal(await app.evaluate(({app})=>app.getVersion()),'0.3.5');
   const page=await app.firstWindow();await page.waitForSelector('#route-list .scene');await app.evaluate(()=>global.__assistantTest.main.setSize(1400,960));
   assert.ok((await page.evaluate(()=>window.assistant.call('view'))).demo);
   await page.screenshot({path:path.join(root,'docs/images/overview.jpg'),type:'jpeg',quality:82});
