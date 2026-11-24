@@ -21,7 +21,7 @@ class UpdateNotice {
   async startUpdate(){
     if(this.busy||!this.isSettings())return;
     const token=this.token;this.busy=true;this.installing=true;this.result={status:'installing',message:'正在下载更新…'};this.paint();
-    try{const value=await this.installRequest();if(token===this.token&&value?.started){this.result={status:'installing',message:'更新已开始，FoxFerry 即将重启…'};this.paint();}}
+    try{const value=await this.installRequest();if(token===this.token&&value?.started){this.result={status:'installing',message:'安装程序已打开，FoxFerry 即将退出…'};this.paint();}}
     catch(error){if(token===this.token)this.result={status:'error',message:'更新失败：'+error.message};}
     finally{if(token===this.token){this.busy=false;this.installing=false;this.paint();}}
   }

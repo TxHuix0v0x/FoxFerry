@@ -18,7 +18,7 @@ test('in-app update reports download progress, keeps a red dot and surfaces fail
   n.progress({received:50,total:100});assert.match(elements['update-text'].textContent,/50%/);
   n.progress({received:1024,total:0});assert.match(elements['update-text'].textContent,/MB/);
   resolveInstall({started:true});await start;assert.equal(installs,1);assert.equal(n.busy,false);
-  assert.match(elements['update-text'].textContent,/即将重启/);
+  assert.match(elements['update-text'].textContent,/即将退出/);
   const failing=new UpdateNotice({document:doc,isSettings:()=>true,request:async()=>({status:'update',message:'有新版本'}),installRequest:async()=>{throw Error('下载失败');},now:()=>0,setTimer:()=>1,clearTimer(){}});
   await failing.check();await failing.startUpdate();
   assert.match(elements['update-text'].textContent,/更新失败：下载失败/);
