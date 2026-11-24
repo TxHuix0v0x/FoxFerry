@@ -9,6 +9,35 @@ const { Store, atomicWrite } = require('../src/store.cjs');
 const { createDemo } = require('../src/simulation.cjs');
 const M = require('../src/model.cjs');
 const { selectedAssistant, vergeSubscriptions } = require('../src/discovery.cjs');
+test('choosing a subscription with an automatic mode moves the scene to that subscription', async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'assistant-auto-'));
+  let service;
+  try {
+    service = await new Service(new Store(dir), { demo: true }).init();
+    const sub = service.state.subscriptions[1];
+    const node = sub.nodes.find(n => M.country(n));
+    assert.ok(node, 'demo subscriptions carry detected countries');
+    const result = await service.command('auto', { sceneId: 'daily', anyCountry: true, subscriptionId: sub.id, nodeId: node.id });
+    const updated = result.state.scenes.find(s => s.id === 'daily');
+    assert.equal(updated.subscriptionId, sub.id);
+    assert.equal(updated.selected, node.id);
+    assert.equal(updated.mode, 'auto');
+    assert.equal(updated.anyCountry, true);
+    const country = M.country(node);
+    const other = service.state.subscriptions[2];
+    const sameCountry = other.nodes.find(n => M.country(n) === country);
+    if (sameCountry) {
+      const locked = await service.command('auto', { sceneId: 'daily', country, subscriptionId: other.id });
+      const scene = locked.state.scenes.find(s => s.id === 'daily');
+      assert.equal(scene.subscriptionId, other.id);
+      assert.equal(M.country(service.state.subscriptions.find(s => s.id === other.id).nodes.find(n => n.id === scene.selected)), country);
+      assert.equal(scene.anyCountry, undefined);
+    } else {
+      await assert.rejects(() => service.command('auto', { sceneId: 'daily', country, subscriptionId: other.id }), /该订阅没有/);
+    }
+  } finally { await service?.close(); await fs.rm(dir, { recursive: true, force: true }); }
+});
+
 test('a failed process snapshot never pauses scheduling, and shutdown is bounded', async () => {
   assert.equal(await kernelStampSafe(async () => { throw Object.assign(Error('timeout'), { code: 'EPROCESS' }); }), undefined);
   await assert.rejects(() => kernelStampSafe(async () => { throw Error('boom'); }), /boom/);

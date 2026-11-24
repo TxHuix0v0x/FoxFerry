@@ -336,7 +336,7 @@ class Service {
           case 'pause': this.paused = true; this.status = '用户已暂停调度'; this.scheduler?.invalidate(); break;
           case 'switch': if (this.paused) throw Error('请先接入调度'); await this.checkKernel(true); result = await this.scheduler.switch(value.sceneId, value.nodeId, value); break;
           case 'restore': if (this.paused) throw Error('请先接入调度'); await this.scheduler.restore(value.sceneId); break;
-          case 'auto': { if (this.paused) throw Error('请先接入调度'); await this.guard(); const next = structuredClone(this.state); const s = next.scenes.find(s => s.id === value.sceneId); if (!s || s.temporary) throw Error('请先结束临时加速'); s.mode = 'auto'; if (value.anyCountry) s.anyCountry = true; else { delete s.anyCountry; if (value.country) s.countryLock = value.country; else if (!s.countryLock) s.countryLock = M.country(M.nodes(next).find(n => n.id === s.selected)); } await this.store.save(next); this.scheduler.invalidate(); this.scheduler.lastDelay = null; break; }
+          case 'auto': { if (this.paused) throw Error('请先接入调度'); await this.guard(); const next = structuredClone(this.state); const s = next.scenes.find(s => s.id === value.sceneId); if (!s || s.temporary) throw Error('请先结束临时加速'); s.mode = 'auto'; if (value.anyCountry) s.anyCountry = true; else { delete s.anyCountry; if (value.country) s.countryLock = value.country; else if (!s.countryLock) s.countryLock = M.country(M.nodes(next).find(n => n.id === s.selected)); } if (this.applyAutoTarget(next, s, value)) await this.commit(next); else await this.store.save(next); this.scheduler.invalidate(); this.scheduler.lastDelay = null; break; }
           case 'keep': this.scheduler.keep(value.id); break;
           case 'probe': result = await this.probe(value.nodeId); break;
           default: throw Error('不支持的操作');
@@ -345,6 +345,20 @@ class Service {
         return { result, state: this.view({ history: false }) };
       } catch (e) { throw Error(redact(e.message)); }
     });
+  }
+  // Picking a subscription together with an automatic mode must move the scene to that
+  // subscription; the automatic command used to ignore the picker and silently keep the old one.
+  applyAutoTarget(next, scene, value) {
+    if (!value.subscriptionId) return false;
+    const subscription = next.subscriptions.find(s => s.id === value.subscriptionId);
+    if (!subscription) throw Error('订阅不存在');
+    const pool = subscription.nodes.filter(node => scene.anyCountry === true || M.country(node) === scene.countryLock);
+    if (!pool.length) throw Error(scene.anyCountry ? '该订阅没有可用节点' : `该订阅没有 ${scene.countryLock || '所选国家'} 的节点`);
+    const node = pool.find(n => n.id === value.nodeId) || pool.find(n => n.id === scene.selected) || pool[0];
+    const changed = scene.subscriptionId !== subscription.id || scene.selected !== node.id;
+    if (scene.subscriptionId !== subscription.id) { scene.subscriptionId = subscription.id; scene.candidates = []; scene.countries = []; }
+    scene.selected = node.id;
+    return changed;
   }
   async switchEntry(value) {
     if (this.paused) throw Error('请先接入调度');
@@ -357,7 +371,8 @@ class Service {
       const next = structuredClone(this.state), scene = next.scenes.find(s => s.id === rule.sceneId);
       if (scene.temporary) throw Error('请先恢复临时加速');
       scene.mode = 'auto'; if (value.anyCountry) scene.anyCountry = true; else { delete scene.anyCountry; if (value.country) scene.countryLock = value.country; }
-      await this.store.save(next); this.scheduler.invalidate(); this.scheduler.lastDelay = null; return;
+      if (this.applyAutoTarget(next, scene, value)) await this.commit(next); else await this.store.save(next);
+      this.scheduler.invalidate(); this.scheduler.lastDelay = null; return;
     }
     if (operation === 'restore') throw Error('本条分流尚未设置独立临时线路');
     const previous = structuredClone(this.state), next = structuredClone(this.state);
@@ -370,7 +385,7 @@ class Service {
       if (scene.subscriptionId !== node.subscriptionId) scene.candidates = [];
       Object.assign(scene, { selected: node.id, subscriptionId: node.subscriptionId, countryLock: M.country(node), mode: 'manual' });
       if (value.reconnect) connections = (await this.core.connections()).connections || [];
-    } else { scene.mode = 'auto'; if (value.anyCountry) scene.anyCountry = true; else { delete scene.anyCountry; if (value.country) scene.countryLock = value.country; } }
+    } else { scene.mode = 'auto'; if (value.anyCountry) scene.anyCountry = true; else { delete scene.anyCountry; if (value.country) scene.countryLock = value.country; } this.applyAutoTarget(next, scene, value); }
     await this.commit(next);
     const failed = [];
     if (value.reconnect) {
